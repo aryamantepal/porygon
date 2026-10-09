@@ -1,0 +1,18 @@
+# Private working plan. The public docs describe the system; this file is the schedule.
+LOCAL.md
+
+# Secrets and local environments
+.env
+.env.*
+.venv/
+venv/
+
+# Runtime artifacts
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+runs/
+saves/
+*.sav
+*.ss[0-9]
