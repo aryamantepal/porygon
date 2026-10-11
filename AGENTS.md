@@ -9,7 +9,7 @@ The working sequence is `LOCAL.md` at the repo root. That file is gitignored. Wh
 | Package | Owns | May depend on |
 | --- | --- | --- |
 | `environments` | The adapter: emulator, saves, observations, actions, progress | nothing in `agents` or `evaluation` |
-| `agents` | ReAct, Reflexion, and Voyager (curriculum, skill library, iterative prompting) | the environment interface only |
+| `agents` | Direct policy, ReAct, Reflexion, and Voyager (curriculum, skill library, iterative prompting) | the environment interface only |
 | `evaluation` | Goals, trials, budgets, logs, metrics, ablations | environment and agent interfaces |
 
 The adapter is the only code that knows the game is Pokémon. Agents see a snapshot and a goal. Evaluation decides scores from adapter state, budgets, and logs.
@@ -37,8 +37,9 @@ The adapter defines the legal actions (buttons, menus, movement, NPC interaction
 
 ## Agents
 
-The runner calls one interface: observe, decide, step, until the goal is met or a budget runs out.
+The runner calls one interface: observe, decide, step, until the goal is met or a budget runs out. The model id is part of the run config. An open-weights model served locally is a valid model. The player never imports the server, the weights path, or the emulator.
 
+- **Direct policy** — the current snapshot and the legal actions go in; one action comes out. The request includes no earlier turns, reflections, skills, or curriculum. Disable thinking and any other hidden trace so the output is the decision. A typed-decision model uses this same player: one pass, a choice among the actions. Ablation against ReAct is the comparison.
 - **ReAct** — reason, act, observe, repeat.
 - **Reflexion** — ReAct, plus verbal reflections on failures that later decisions can read. Ablation: reflections off.
 - **Voyager** — automatic curriculum, skill library, and iterative prompting. The curriculum proposes the next goal from progress and state. The library stores, retrieves, and composes skills. Iterative prompting revises a skill using environment feedback, execution errors, and self-verification. Each of those three can be turned off.

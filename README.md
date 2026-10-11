@@ -1,8 +1,8 @@
 # Porygon
 
-Porygon is an open-source framework for developing and comparing autonomous agents on long-horizon games. The game is Pokémon FireRed. The agents are [ReAct](https://arxiv.org/abs/2210.03629), [Reflexion](https://arxiv.org/abs/2303.11366), and [Voyager](https://voyager.minedojo.org/).
+Porygon is an open-source framework for developing and comparing autonomous players on long-horizon games. The game is Pokémon FireRed. One player is an open-weights model that sees only the current snapshot and chooses an action. The others are [ReAct](https://arxiv.org/abs/2210.03629), [Reflexion](https://arxiv.org/abs/2303.11366), and [Voyager](https://voyager.minedojo.org/).
 
-The question is how those architectures change an agent's ability to explore, plan, remember, recover from mistakes, and carry out long action sequences — and which of those mechanisms still help when the game changes.
+The question is how those architectures change an agent's ability to explore, plan, remember, recover from mistakes, and carry out long action sequences — and which of those mechanisms still help when the game changes. The open-weights player is the floor: the same model, the same snapshot, and a decision with no carried context.
 
 ## Design
 
@@ -10,7 +10,8 @@ Game code, agent code, and experiment code stay separate. A new game is a new ad
 
 ```mermaid
 flowchart LR
-  subgraph agents [Agents]
+  subgraph agents [Players]
+    Direct[Direct policy]
     React[ReAct]
     Reflexion[Reflexion]
     Voyager[Voyager]
@@ -47,9 +48,11 @@ This split follows the adapter in [Teaching a Local LLM to Play Pokémon Crystal
 
 ### Agents
 
-Agents are interchangeable. They receive the goal and observations and return actions. They do not talk to the emulator.
+Players are interchangeable. They receive observations and return actions. They do not talk to the emulator. The model behind a player is configurable, including an open-weights model served locally.
 
-**ReAct.** Reason about the current situation, act, observe, and repeat. This is the baseline.
+**Direct policy.** An open-weights model maps the current snapshot onto one legal action. The call carries that snapshot and the action set. It carries no earlier turns, reflections, skills, or curriculum. Thinking and other hidden reasoning stay off, so the output is the decision itself. This is the player a typed-decision model also fits: one forward pass, a choice among the actions, no generated trace.
+
+**ReAct.** Reason about the current situation, act, observe, and repeat. This is the agent baseline the direct policy is compared with.
 
 **Reflexion.** ReAct plus periodic review of failures. The review is stored as text that later decisions can read.
 
