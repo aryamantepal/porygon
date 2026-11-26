@@ -23,8 +23,8 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 
 from agents.common import describe_actions, parse_action, render_observation
-from agents.models import ChatModel, Message, ModelCall
-from agents.protocol import Decision, TrialOutcome
+from agents.models import ChatModel, Message
+from agents.protocol import Decision, Review, TrialOutcome
 from environments.protocol import Action, Observation
 
 SYSTEM = (
@@ -100,8 +100,8 @@ class ReAct:
             calls=tuple(calls),
         )
 
-    def end_trial(self, outcome: TrialOutcome) -> Sequence[ModelCall]:
-        return ()
+    def end_trial(self, outcome: TrialOutcome) -> Review:
+        return Review()
 
     def _system(self) -> str:
         return SYSTEM

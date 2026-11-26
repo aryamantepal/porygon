@@ -155,11 +155,20 @@ def _run_trial(
         result.success = reason == "goal_met"
         result.reason = reason
         result.final_progress = dict(progress)
-        end_calls = player.end_trial(TrialOutcome(result.success, reason, result.steps))
-        _count_calls(result, end_calls)
+        review = player.end_trial(TrialOutcome(result.success, reason, result.steps))
+        _count_calls(result, review.calls)
         result.wall_seconds = time.perf_counter() - started
-        if end_calls:
-            write({"kind": "trial_end", "calls": [asdict(call) for call in end_calls]})
+        write(
+            {
+                "kind": "trial_end",
+                "success": result.success,
+                "reason": reason,
+                "review": {
+                    "trace": dict(review.trace) if review.trace is not None else None,
+                    "calls": [asdict(call) for call in review.calls],
+                },
+            }
+        )
     _write_json(trial_dir / "outcome.json", asdict(result))
     return result
 
