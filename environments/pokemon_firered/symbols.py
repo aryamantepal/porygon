@@ -74,6 +74,7 @@ OBJ_COORDS = 0x10
 OBJ_FACING = 0x18
 PLAYER_LOCAL_ID = 0xFF
 FACING = {1: "DOWN", 2: "UP", 3: "LEFT", 4: "RIGHT"}
+ITEM_BALL_GRAPHICS = 92  # the item-ball sprite; checked on the starter ball in Oak's lab
 
 IN_BATTLE_BIT = 0x02
 BATTLE_TYPE_TRAINER = 0x08

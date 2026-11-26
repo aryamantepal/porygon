@@ -144,7 +144,8 @@ class FireRedEnv:
         for obj in objects:
             if obj["local_id"] == sym.PLAYER_LOCAL_ID:
                 continue
-            places.append({"id": f"object_{obj['local_id']}", "role": "object", "position": obj["position"]})
+            role = "item" if obj["graphics"] == sym.ITEM_BALL_GRAPHICS else "object"
+            places.append({"id": f"{role}_{obj['local_id']}", "role": role, "position": obj["position"]})
             x, y = obj["position"]
             if 0 <= y < len(grid) and 0 <= x < len(grid[y]):
                 grid[y] = grid[y][:x] + "#" + grid[y][x + 1 :]
