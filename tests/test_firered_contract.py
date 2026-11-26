@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import ast
+import json
 from pathlib import Path
 
 import pytest
@@ -131,7 +132,25 @@ def test_recording_writes_one_line_per_transition(tmp_path):
     recorder.close()
     lines = (run_dir / "transitions.jsonl").read_text().splitlines()
     assert len(lines) == 2
-    assert (run_dir / "frames" / "000001.png").read_bytes().startswith(b"\x89PNG")
+    assert (run_dir / "frames" / "0000" / "000001.png").read_bytes().startswith(b"\x89PNG")
+
+
+def test_recording_keeps_frames_from_every_episode(tmp_path):
+    env, _ = make_env(tmp_path)
+    run_dir = tmp_path / "runs" / "demo"
+    first = RecordingEnvironment(env, run_dir)
+    first.reset()
+    first.step(Press("RIGHT"))
+    first.reset()
+    first.close()
+    reopened = RecordingEnvironment(env, run_dir)
+    reopened.reset()
+    reopened.close()
+    records = [json.loads(line) for line in (run_dir / "transitions.jsonl").read_text().splitlines()]
+    assert [record["episode"] for record in records] == [0, 0, 1, 2]
+    assert len({record["frame"] for record in records}) == 4
+    for record in records:
+        assert (run_dir / record["frame"]).exists()
 
 
 def test_environments_import_no_agents_models_or_evaluation():
