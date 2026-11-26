@@ -44,6 +44,10 @@ def make_player(spec: dict[str, Any], model: ChatModel):
         from agents.direct import DirectPolicy
 
         return DirectPolicy(model)
+    if name == "react":
+        from agents.react import ReAct
+
+        return ReAct(model, history_turns=spec.get("history_turns", 10))
     raise ValueError(f"unknown agent {name!r}")
 
 
