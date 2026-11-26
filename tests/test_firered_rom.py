@@ -89,7 +89,9 @@ def test_harness_navigator_takes_the_stairs(env, tmp_path):
 
 def test_context_follows_dialogue_and_locked_input(env):
     assert env.reset().state["context"] == "overworld"
-    assert env.step(Press("A")).observation.state["context"] == "dialogue"  # the console above the start tile
+    state = env.step(Press("A")).observation.state  # the console above the start tile
+    assert state["context"] == "dialogue"
+    assert state["dialogue"]["text"] == "RED played with the NES. …Okay! It's time to go!"
     for _ in range(12):
         if env.step(Press("A")).observation.state["context"] == "overworld":
             break
@@ -110,3 +112,15 @@ def test_context_reports_battle_until_it_ends(env):
         if env.step(Press("A")).observation.state["context"] != "battle":
             break
     assert env.observe().state["context"] != "battle"
+
+
+@pytest.mark.skipif(not BATTLE_STATE, reason="needs PORYGON_BATTLE_STATE (a state inside a battle)")
+def test_battle_block_describes_the_rival_fight(env):
+    env.load(Path(BATTLE_STATE))
+    battle = env.observe().state["battle"]
+    assert battle["active"] == {"hp": 20, "max_hp": 20, "level": 5}
+    assert battle["moves"] == [
+        {"id": "tackle", "kind": "attack", "power": 35, "uses_left": 35},
+        {"id": "growl", "kind": "status", "power": 0, "uses_left": 40},
+    ]
+    assert battle["opponent"] == {"hp": 18, "max_hp": 18, "level": 5, "catchable": False}

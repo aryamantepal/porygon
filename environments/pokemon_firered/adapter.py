@@ -13,6 +13,7 @@ from typing import Any
 from environments.protocol import Action, Observation, ObservationMode, Press, Progress, StepResult
 from environments.pokemon_firered import symbols as sym
 from environments.pokemon_firered.buttons import Button
+from environments.pokemon_firered.text import decode
 from environments.pokemon_firered.emulator import Emulator, MgbaEmulator, rom_identity
 
 
@@ -124,8 +125,9 @@ class FireRedEnv:
         """Role-snapshot fields (environments/roles.py): what a harness can plan and walk with.
 
         `context` covers battle, dialogue, busy (input locked: warps,
-        cutscenes, menus), and overworld. The `battle` block itself (options,
-        opponent) is not filled yet.
+        cutscenes, menus), and overworld. In battle, `battle` describes our
+        active Pokémon, its moves, and the opponent; menu navigation (`options`,
+        `cursor`) is not filled because FireRed's battle menus are not verified yet.
         """
         location = self._location()
         objects = self._object_events()
@@ -142,8 +144,13 @@ class FireRedEnv:
             x, y = obj["position"]
             if 0 <= y < len(grid) and 0 <= x < len(grid[y]):
                 grid[y] = grid[y][:x] + "#" + grid[y][x + 1 :]
+        context = self._context()
+        roles = {"battle": self._battle()} if context == "battle" else {}
+        if context == "dialogue":
+            roles["dialogue"] = {"text": decode(self._emulator.read(self._symbols.string_var4, sym.MESSAGE_MAX))}
         return {
-            "context": self._context(),
+            **roles,
+            "context": context,
             "map": f"{location['map_group']}.{location['map_num']}",
             "position": player["position"] if player else [location["x"], location["y"]],
             "facing": player["facing"] if player else None,
@@ -152,6 +159,27 @@ class FireRedEnv:
             "places": places,
             "controls": {"up": "UP", "down": "DOWN", "left": "LEFT", "right": "RIGHT", "confirm": "A", "cancel": "B", "wait": WAIT},
         }
+
+    def _battle(self) -> dict[str, Any]:
+        def battler(index: int) -> dict[str, Any]:
+            base = self._symbols.battle_mons + index * sym.BATTLER_SIZE
+            return {
+                "hp": self._read_u16(base + sym.BM_HP),
+                "max_hp": self._read_u16(base + sym.BM_MAX_HP),
+                "level": self._read_u8(base + sym.BM_LEVEL),
+            }
+
+        ours = self._symbols.battle_mons
+        moves = []
+        for slot in range(4):
+            move = self._read_u16(ours + sym.BM_MOVES + slot * 2)
+            if move == 0:
+                continue
+            power = self._read_u8(self._symbols.battle_moves + move * sym.MOVE_SIZE + sym.MOVE_POWER)
+            name = decode(self._emulator.read(self._symbols.move_names + move * sym.MOVE_NAME_SIZE, sym.MOVE_NAME_SIZE))
+            moves.append({"id": name.lower(), "kind": "attack" if power else "status", "power": power, "uses_left": self._read_u8(ours + sym.BM_PP + slot)})
+        trainer = bool(self._read_u32(self._symbols.battle_type_flags) & sym.BATTLE_TYPE_TRAINER)
+        return {"active": battler(0), "moves": moves, "opponent": {**battler(1), "catchable": not trainer}}
 
     def _context(self) -> str:
         if self._read_u8(self._symbols.main_flags) & sym.IN_BATTLE_BIT:

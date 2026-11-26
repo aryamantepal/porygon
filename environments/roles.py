@@ -30,6 +30,11 @@ them missing.
                  {"options": [{"id", "kind", "uses_left"?, "power"?}], "cursor": int,
                   "opponent": {"hp", "max_hp", "catchable"?}}
                  kind is "attack", "catch", "item", or "flee"
+               an adapter that cannot yet drive the battle menus may instead fill
+                 {"active": {"hp", "max_hp", "level"}, "moves": [{"id", "kind", "power", "uses_left"}],
+                  "opponent": {...}}
+               which describes the fight without `options`; a harness then cannot
+               pick a move and only confirms
 
 Keys the harness uses to act come from `legal_actions()`. The adapter says
 which button does what through `controls` (all optional):
