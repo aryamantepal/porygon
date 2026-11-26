@@ -85,3 +85,15 @@ def test_harness_navigator_takes_the_stairs(env, tmp_path):
     plan = json.dumps({"why": "stairs", "tool": "go_to", "args": {"place": "door_0"}, "intention": "go downstairs"})
     result = run(run_dir=tmp_path / "run", env=env, player=CrystalHarness(ScriptedModel(lambda m: plan)), goal=Goal("down", "Go downstairs.", {"map": [4, 0]}), budgets=Budgets(max_steps=40))[0]
     assert result.success and result.model_calls == 1
+
+
+def test_context_follows_dialogue_and_menu(env):
+    assert env.reset().state["context"] == "overworld"
+    assert env.step(Press("A")).observation.state["context"] == "dialogue"  # the console above the start tile
+    for _ in range(12):
+        if env.step(Press("A")).observation.state["context"] == "overworld":
+            break
+    assert env.observe().state["context"] == "overworld"
+    env.reset()
+    env.step(Press("START"))
+    assert env.observe().state["context"] == "menu"

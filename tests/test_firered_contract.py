@@ -80,6 +80,7 @@ def test_structured_observation_has_no_frame(tmp_path):
 def test_role_snapshot_fields(tmp_path):
     env, _ = make_env(tmp_path, ObservationMode.STRUCTURED)
     state = env.reset().state
+    assert state["context"] == "overworld"
     assert state["map"] == "3.0" and state["position"] == [5, 7] and state["facing"] == "UP"
     assert state["grid"] == ["#....", ".....", "....."]
     assert state["places"] == [{"id": "door_0", "role": "door", "position": [1, 0], "leads_to": "3.1"}]

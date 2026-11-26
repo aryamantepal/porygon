@@ -29,6 +29,10 @@ class Symbols:
     object_events: int  # gObjectEvents, EWRAM
     map_header: int  # gMapHeader, EWRAM
     backup_map_layout: int  # gBackupMapLayout, IWRAM
+    # Unnamed bytes picked by diffing memory between overworld, dialogue, and
+    # Start-menu states, then checked across two dialogues in two maps:
+    text_window: int  # 2 while a field text box is up, including its last line
+    modal_input: int  # 1 while a text box or a menu holds the input
 
 
 # Offsets inside SaveBlock1 (include/global.h).
@@ -61,6 +65,9 @@ OBJ_FACING = 0x18
 PLAYER_LOCAL_ID = 0xFF
 FACING = {1: "DOWN", 2: "UP", 3: "LEFT", 4: "RIGHT"}
 
+TEXT_WINDOW_OPEN = 2
+MODAL_INPUT_ON = 1
+
 # struct MapHeader: mapLayout ptr at 0x0, events ptr at 0x4.
 # struct MapEvents: objectEventCount, warpCount, coordEventCount, bgEventCount (u8),
 # then pointers; warps at 0x8. struct WarpEvent (8 bytes): x s16, y s16,
@@ -90,6 +97,8 @@ TABLES: dict[tuple[str, int], Symbols] = {
         object_events=0x02036E38,
         map_header=0x02036DFC,
         backup_map_layout=0x03005040,
+        text_window=0x03000EB1,
+        modal_input=0x03000F9C,
     ),
 }
 

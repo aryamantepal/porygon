@@ -117,8 +117,9 @@ class FireRedEnv:
     def _roles(self) -> dict[str, Any]:
         """Role-snapshot fields (environments/roles.py): what a harness can plan and walk with.
 
-        `context` is not filled yet: dialogue, menu, and battle detection still
-        need verified reads, and a wrong context is worse than none.
+        `context` covers overworld, dialogue, and menu. Battle detection still
+        needs a verified read (no battle is reachable from the start state yet),
+        so a battle currently reports as "menu".
         """
         location = self._location()
         objects = self._object_events()
@@ -136,6 +137,7 @@ class FireRedEnv:
             if 0 <= y < len(grid) and 0 <= x < len(grid[y]):
                 grid[y] = grid[y][:x] + "#" + grid[y][x + 1 :]
         return {
+            "context": self._context(),
             "map": f"{location['map_group']}.{location['map_num']}",
             "position": player["position"] if player else [location["x"], location["y"]],
             "facing": player["facing"] if player else None,
@@ -144,6 +146,13 @@ class FireRedEnv:
             "places": places,
             "controls": {"up": "UP", "down": "DOWN", "left": "LEFT", "right": "RIGHT", "confirm": "A", "cancel": "B"},
         }
+
+    def _context(self) -> str:
+        if self._read_u8(self._symbols.text_window) == sym.TEXT_WINDOW_OPEN:
+            return "dialogue"
+        if self._read_u8(self._symbols.modal_input) == sym.MODAL_INPUT_ON:
+            return "menu"
+        return "overworld"
 
     def _object_events(self) -> list[dict[str, Any]]:
         objects = []
