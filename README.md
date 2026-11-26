@@ -72,6 +72,40 @@ The runner records task success, game progression, environment steps, token usag
 
 Trajectories, prompts, and model calls are saved with the run.
 
+## Setup
+
+Python 3.12+ and [uv](https://docs.astral.sh/uv/). The FireRed adapter runs mGBA in process through its Python bindings, which are built from source. You supply your own ROM; it is never committed (`roms/` and `saves/` are gitignored).
+
+```sh
+brew install cmake pkgconf libzip libpng sqlite ffmpeg
+uv sync --group dev --group emulator
+
+git clone https://github.com/mgba-emu/mgba ~/src/mgba
+cd ~/src/mgba && mkdir build && cd build
+cmake .. -DBUILD_PYTHON=ON -DBUILD_QT=OFF -DBUILD_SDL=OFF -DENABLE_SCRIPTING=OFF \
+  -DCMAKE_BUILD_TYPE=Release -DCMAKE_POLICY_DEFAULT_CMP0148=OLD \
+  -DPYTHON_EXECUTABLE=/path/to/porygon/.venv/bin/python
+make -j
+```
+
+The bindings' generated headers must see the same feature defines the library was compiled with, or `struct mCore` disagrees between the two and the core crashes on load. Rebuild them with those defines:
+
+```sh
+cd ~/src/mgba/src/platform/python
+DEFS=$(grep C_DEFINES ~/src/mgba/build/CMakeFiles/mgba.dir/flags.make | tr ' ' '\n' | grep '^-D' | grep -v -e MGBA_DLL -e mgba_EXPORTS | tr '\n' ' ')
+INCS=$(grep C_INCLUDES ~/src/mgba/build/python/CMakeFiles/mgba-pylib.dir/flags.make | sed 's/^C_INCLUDES = //')
+BINDIR=~/src/mgba/build LIBDIR=~/src/mgba/build CPPFLAGS="$INCS $DEFS" \
+  /path/to/porygon/.venv/bin/python setup.py build -b ~/src/mgba/build/python
+```
+
+Then put the built package on the venv's path and run the tests, including the ones against your ROM:
+
+```sh
+ls -d ~/src/mgba/build/python/lib.* > .venv/lib/python3.*/site-packages/mgba-local.pth
+uv run --group dev pytest
+PORYGON_ROM=roms/firered.gba PORYGON_STATE=saves/start.state uv run --group dev pytest tests/test_firered_rom.py
+```
+
 ## Prior work
 
 - [Voyager: An Open-Ended Embodied Agent with Large Language Models](https://voyager.minedojo.org/)

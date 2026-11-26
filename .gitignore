@@ -1,5 +1,6 @@
 # Private working plan. The public docs describe the system; this file is the schedule.
 LOCAL.md
+environments/pokemon_firered/SKETCH.md
 
 # Secrets and local environments
 .env
@@ -16,3 +17,10 @@ runs/
 saves/
 *.sav
 *.ss[0-9]
+*.state
+*.state.json
+
+# ROMs and BIOS are never committed
+roms/
+*.gba
+*.bin

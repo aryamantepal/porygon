@@ -1,0 +1,14 @@
+[project]
+name = "porygon"
+version = "0.0.0"
+description = "A framework for comparing autonomous players on long-horizon games."
+requires-python = ">=3.12"
+dependencies = []
+
+[dependency-groups]
+dev = ["pytest>=8"]
+# Runtime deps of the locally built mGBA Python bindings (see README).
+emulator = ["cffi>=1.6", "cached-property"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
