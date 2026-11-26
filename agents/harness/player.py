@@ -181,6 +181,10 @@ class CrystalHarness:
     def _start_battle(self, state, keys, turn: _Turn) -> None:
         battle = state["battle"]
         allowed, removed = battle_rules.allowed_options(battle, self._battle_goal)
+        if not battle.get("options"):
+            # messages or animations: nothing to choose, so move them along
+            self._start("battle", "press", {"key": keys["confirm"]}, tools.press(keys["confirm"], 1), state)
+            return
         if not allowed:
             turn.events.append({"type": "battle", "goal": self._battle_goal, "removed": removed, "choice": None})
             self._start("battle", "press", {"key": keys["confirm"]}, tools.press(keys["confirm"], 1), state)
@@ -199,8 +203,13 @@ class CrystalHarness:
             else:
                 why = f"reply did not name an allowed option; took {choice}"
         turn.events.append({"type": "battle", "goal": self._battle_goal, "allowed": [o["id"] for o in allowed], "removed": removed, "choice": choice, "why": why})
-        index = battle_rules.option_index(battle, choice)
-        self._start("battle", "choose", {"option": choice}, tools.pick_option(battle.get("cursor", 0), index, keys), state)
+        chosen = next(o for o in allowed if o["id"] == choice)
+        given = battle_rules.option_keys(chosen)
+        if given:
+            steps = tools.press_sequence(given)
+        else:
+            steps = tools.pick_option(battle.get("cursor", 0), battle_rules.option_index(battle, choice), keys)
+        self._start("battle", "choose", {"option": choice}, steps, state)
 
     def _read_dialogue(self, state, keys, turn: _Turn) -> None:
         text = (state.get("dialogue") or {}).get("text", "")

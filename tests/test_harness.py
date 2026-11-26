@@ -177,3 +177,31 @@ def test_busy_waits_without_calling_the_model(tmp_path):
     busy = Observation(ObservationMode.STRUCTURED, 0, None, {**state, "controls": {"wait": "WAIT"}})
     keys = [harness.decide(busy, legal).action.key for _ in range(3)]
     assert keys == ["WAIT", "WAIT", "B"] and model.calls == []
+
+
+def test_battle_uses_the_adapters_keys_when_given():
+    from environments.protocol import Observation, Press
+
+    battle = {
+        "options": [
+            {"id": "tackle", "kind": "attack", "power": 35, "uses_left": 35, "keys": ["A", "A"]},
+            {"id": "growl", "kind": "status", "power": 0, "uses_left": 40, "keys": ["A", "RIGHT", "A"]},
+        ],
+        "opponent": {"hp": 18, "max_hp": 18, "catchable": False},
+    }
+    model = ScriptedModel(lambda messages: '{"why": "lower its attack", "option": "growl"}')
+    harness = CrystalHarness(model)
+    harness.start_trial("win")
+    legal = [Press(k) for k in ("UP", "DOWN", "LEFT", "RIGHT", "A", "B")]
+    observation = Observation(ObservationMode.STRUCTURED, 0, None, {"context": "battle", "battle": battle})
+    assert [harness.decide(observation, legal).action.key for _ in range(3)] == ["A", "RIGHT", "A"]
+
+
+def test_battle_without_options_just_confirms():
+    from environments.protocol import Observation, Press
+
+    model = ScriptedModel(lambda messages: "{}")
+    harness = CrystalHarness(model)
+    harness.start_trial("win")
+    observation = Observation(ObservationMode.STRUCTURED, 0, None, {"context": "battle", "battle": {"moves": [], "options": []}})
+    assert harness.decide(observation, [Press("A"), Press("B")]).action.key == "A" and model.calls == []

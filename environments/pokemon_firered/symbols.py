@@ -35,6 +35,10 @@ class Symbols:
     battle_moves: int  # gBattleMoves, ROM; found by matching Tackle's and Growl's records
     move_names: int  # gMoveNames, ROM; found by matching "TACKLE" and "GROWL"
     string_var4: int  # gStringVar4, EWRAM; the message being printed (checked on two dialogues)
+    # Found in the rival battle by moving each cursor through every slot:
+    action_cursor: int  # gActionSelectionCursor[0]: 0 FIGHT, 1 BAG, 2 POKéMON, 3 RUN (2x2 grid)
+    move_cursor: int  # gMoveSelectionCursor[0]: move slots 0-3 (2x2 grid)
+    controller_func: int  # gBattlerControllerFuncs[0]: which input handler our battler is in
     # Unnamed bytes picked by diffing memory between overworld, dialogue, and
     # Start-menu states, then checked across two dialogues in two maps:
     text_window: int  # 2 while a field text box is up, including its last line
@@ -86,6 +90,10 @@ MOVE_SIZE = 12
 MOVE_POWER = 1
 MOVE_NAME_SIZE = 13
 MESSAGE_MAX = 1000
+# Values of controller_func on BPRE rev 0 (Thumb addresses of the input handlers)
+CHOOSE_ACTION = 0x080E763D
+CHOOSE_MOVE = 0x080E7989
+ACTION_FIGHT, ACTION_RUN = 0, 3
 TEXT_WINDOW_OPEN = 2
 INPUT_LOCKED = 1
 
@@ -124,6 +132,9 @@ TABLES: dict[tuple[str, int], Symbols] = {
         battle_moves=0x08250C04,
         move_names=0x08247094,
         string_var4=0x02021D18,
+        action_cursor=0x02023FF8,
+        move_cursor=0x02023FFC,
+        controller_func=0x03004FE0,
         text_window=0x03000EB1,
         input_locked=0x03000F9C,
     ),

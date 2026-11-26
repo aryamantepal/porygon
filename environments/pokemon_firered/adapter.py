@@ -179,7 +179,28 @@ class FireRedEnv:
             name = decode(self._emulator.read(self._symbols.move_names + move * sym.MOVE_NAME_SIZE, sym.MOVE_NAME_SIZE))
             moves.append({"id": name.lower(), "kind": "attack" if power else "status", "power": power, "uses_left": self._read_u8(ours + sym.BM_PP + slot)})
         trainer = bool(self._read_u32(self._symbols.battle_type_flags) & sym.BATTLE_TYPE_TRAINER)
-        return {"active": battler(0), "moves": moves, "opponent": {**battler(1), "catchable": not trainer}}
+        battle = {"active": battler(0), "moves": moves, "opponent": {**battler(1), "catchable": not trainer}}
+        battle["options"] = self._battle_options(moves, trainer)
+        return battle
+
+    def _battle_options(self, moves: list[dict[str, Any]], trainer: bool) -> list[dict[str, Any]]:
+        """Each option carries the exact keys that choose it from the menu on screen.
+
+        Empty while the battle shows messages or animations; then confirming is
+        the only thing to do.
+        """
+        handler = self._read_u32(self._symbols.controller_func)
+        if handler == sym.CHOOSE_ACTION:
+            to_fight = _grid_keys(self._read_u8(self._symbols.action_cursor), sym.ACTION_FIGHT) + ["A"]
+            # the move menu reopens where its cursor was left, so plan from that slot
+            options = [{**move, "keys": to_fight + _grid_keys(self._read_u8(self._symbols.move_cursor), slot) + ["A"]} for slot, move in enumerate(moves)]
+            if not trainer:
+                options.append({"id": "run", "kind": "flee", "keys": _grid_keys(self._read_u8(self._symbols.action_cursor), sym.ACTION_RUN) + ["A"]})
+            return options
+        if handler == sym.CHOOSE_MOVE:
+            cursor = self._read_u8(self._symbols.move_cursor)
+            return [{**move, "keys": _grid_keys(cursor, slot) + ["A"]} for slot, move in enumerate(moves)]
+        return []
 
     def _context(self) -> str:
         if self._read_u8(self._symbols.main_flags) & sym.IN_BATTLE_BIT:
@@ -275,6 +296,16 @@ class FireRedEnv:
                 }
             )
         return party
+
+
+def _grid_keys(cursor: int, target: int) -> list[str]:
+    """Keys that move a 2x2 menu cursor (0 top-left, 1 top-right, 2 bottom-left, 3 bottom-right)."""
+    keys = []
+    if cursor % 2 != target % 2:
+        keys.append("RIGHT" if target % 2 else "LEFT")
+    if cursor // 2 != target // 2:
+        keys.append("DOWN" if target // 2 else "UP")
+    return keys
 
 
 def _meta_path(state_path: Path) -> Path:

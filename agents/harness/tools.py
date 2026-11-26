@@ -163,6 +163,12 @@ def press(key: str, times: int) -> Step:
     return f"pressed {key} x{times}"
 
 
+def press_sequence(keys: list[str]) -> Step:
+    for key in keys:
+        yield Press(key)
+    return f"pressed {' '.join(keys)}"
+
+
 def pick_option(cursor: int, index: int, keys: dict[str, str]) -> Step:
     """Move a menu cursor from `cursor` to `index`, then confirm."""
     direction = "down" if index > cursor else "up"

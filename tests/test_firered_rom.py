@@ -124,3 +124,23 @@ def test_battle_block_describes_the_rival_fight(env):
         {"id": "growl", "kind": "status", "power": 0, "uses_left": 40},
     ]
     assert battle["opponent"] == {"hp": 18, "max_hp": 18, "level": 5, "catchable": False}
+
+
+@pytest.mark.skipif(not BATTLE_STATE, reason="needs PORYGON_BATTLE_STATE (a state inside a battle)")
+def test_harness_fights_the_rival_with_adapter_keys(env, tmp_path):
+    from agents.harness import CrystalHarness
+    from agents.models import ScriptedModel
+    from environments.pokemon_firered import FireRedConfig, FireRedEnv
+    from evaluation.goals import Goal
+    from evaluation.runner import Budgets, run
+
+    in_battle = FireRedEnv(FireRedConfig(Path(ROM), Path(BATTLE_STATE), ObservationMode.BOTH))
+    model = ScriptedModel(lambda messages: '{"why": "damage", "option": "tackle"}')
+    result = run(run_dir=tmp_path / "run", env=in_battle, player=CrystalHarness(model), goal=Goal("win", "Win the battle.", {"badge_count": 99}), budgets=Budgets(max_steps=400))[0]
+    import json
+
+    records = [json.loads(line) for line in (tmp_path / "run/trials/000/steps.jsonl").read_text().splitlines()]
+    choices = [e["choice"] for r in records if r["kind"] == "decision" for e in r["decision"]["trace"]["events"] if e["type"] == "battle" and e.get("choice")]
+    contexts = [r["observation"]["state"]["context"] for r in records if "observation" in r]
+    assert choices and set(choices) == {"tackle"}
+    assert "battle" in contexts and contexts[-1] != "battle"  # the fight ended
