@@ -61,6 +61,21 @@ Every run config records:
 
 Record task success, game progression, environment steps, token usage and cost, recovery, skill reuse, and reliability across repeated trials. Persist prompts, model calls, trajectories, and checkpoints with the run. Ablations are configs for the same runner.
 
+## Viewer
+
+The project ships a public web viewer. A visitor picks an architecture, watches it play, and reads each decision: the snapshot the agent saw, its reasoning, the action, and the result.
+
+- The viewer reads run logs through the published log schema. It imports nothing from `environments`, `agents`, or `evaluation`, and runs no emulator or model.
+- A run log must be replayable on its own: per step, the frame, the snapshot the agent received, the model output, the architecture's reasoning trace, the chosen action and its expansion, and progress. If the viewer needs a field, it goes into the log schema, not a side channel.
+- The viewer shows the reasoning each architecture actually produced, not just the action:
+  - **Direct policy** — no trace. Thinking is disabled, so the viewer shows the decision alone and says so.
+  - **ReAct** — the thought before each action, and the observation it reasoned over next.
+  - **Reflexion** — the ReAct thoughts, plus each reflection: when it was written, the failure it responds to, and which later decisions had it in context.
+  - **Voyager** — the curriculum's proposed goal and its rationale, the skills retrieved or composed, each skill revision with the feedback that caused it, and the self-verification verdict.
+- Reasoning is logged verbatim from the model output. It is not summarized or written after the fact. A mechanism that is ablated off shows as off, not as empty.
+- Architectures are compared on the same task and starting state, so switching players in the viewer is a fair comparison.
+- No ROM, BIOS, or save state is ever served by the viewer or committed with it. Published runs are curated exports, not raw `runs/`.
+
 ## Layout
 
 ```text
@@ -68,6 +83,7 @@ environments/          # protocol, plus one folder per game
 agents/                # protocol, plus one folder per architecture
 evaluation/            # goals, runner, metrics, log schema
 experiments/           # configs
+web/                   # public viewer over exported run logs
 ```
 
 Python. Contract tests for `reset` / `observe` / `step` / `get_progress` come before agent tests. Agent tests use a fake environment that implements the interface.
