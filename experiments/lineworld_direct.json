@@ -1,0 +1,8 @@
+{
+  "environment": {"name": "lineworld", "mode": "structured"},
+  "agent": {"name": "direct"},
+  "model": {"provider": "ollama", "id": "qwen3.8:27b-mlx", "temperature": 0, "max_tokens": 16},
+  "goal": {"task_id": "lineworld-reach-end", "text": "Walk to the far right end of the corridor.", "success": {"x": 9}},
+  "budgets": {"max_steps": 30},
+  "trials": 1
+}
