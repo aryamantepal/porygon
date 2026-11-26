@@ -1,0 +1,36 @@
+{
+  "environment": {
+    "name": "firered",
+    "rom": "roms/firered.gba",
+    "state": "saves/start.state",
+    "mode": "both"
+  },
+  "agent": {
+    "name": "voyager",
+    "curriculum": true,
+    "skill_library": true,
+    "iterative_prompting": true,
+    "self_verification": true,
+    "max_attempts": 4
+  },
+  "model": {
+    "provider": "ollama",
+    "id": "qwen3.8:27b-mlx",
+    "temperature": 0,
+    "max_tokens": 768
+  },
+  "goal": {
+    "task_id": "firered-downstairs",
+    "text": "Leave your bedroom by going down the stairs.",
+    "success": {
+      "map": [
+        4,
+        0
+      ]
+    }
+  },
+  "budgets": {
+    "max_steps": 60
+  },
+  "trials": 1
+}
