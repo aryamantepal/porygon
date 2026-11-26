@@ -24,6 +24,10 @@ def make_environment(spec: dict[str, Any]) -> Environment:
         from environments.lineworld import LineWorld, LineWorldConfig
 
         return LineWorld(LineWorldConfig(width=spec.get("width", 10), start=spec.get("start", 0), mode=mode))
+    if spec["name"] == "gridworld":
+        from environments.gridworld import GridWorld, GridWorldConfig
+
+        return GridWorld(GridWorldConfig(mode=mode))
     if spec["name"] == "firered":
         from environments.pokemon_firered import FireRedConfig, FireRedEnv
 
@@ -68,6 +72,16 @@ def make_player(spec: dict[str, Any], model: ChatModel):
             self_verification=spec.get("self_verification", True),
             max_attempts=spec.get("max_attempts", 4),
             library_path=Path(spec["library_path"]) if spec.get("library_path") else None,
+        )
+    if name == "crystal_harness":
+        from agents.harness import CrystalHarness
+
+        return CrystalHarness(
+            model,
+            backbone=json.loads(Path(spec["backbone"]).read_text()) if spec.get("backbone") else None,
+            knowledge_path=Path(spec["knowledge_path"]) if spec.get("knowledge_path") else None,
+            summarize_dialogue=spec.get("summarize_dialogue", True),
+            stuck_ladder=spec.get("stuck_ladder", True),
         )
     raise ValueError(f"unknown agent {name!r}")
 

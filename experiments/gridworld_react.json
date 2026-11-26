@@ -1,0 +1,27 @@
+{
+  "environment": {
+    "name": "gridworld",
+    "mode": "structured"
+  },
+  "agent": {
+    "name": "react",
+    "history_turns": 10
+  },
+  "model": {
+    "provider": "ollama",
+    "id": "qwen3.8:27b-mlx",
+    "temperature": 0,
+    "max_tokens": 256
+  },
+  "goal": {
+    "task_id": "gridworld-milestone",
+    "text": "Reach the milestone in town.",
+    "success": {
+      "milestone": true
+    }
+  },
+  "budgets": {
+    "max_steps": 80
+  },
+  "trials": 1
+}

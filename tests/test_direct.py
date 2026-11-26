@@ -57,5 +57,5 @@ def test_experiment_configs_parse():
         Budgets(**spec["budgets"])
         model = make_model(spec["model"])
         make_player(spec["agent"], model)
-        if spec["environment"]["name"] == "lineworld":
+        if spec["environment"]["name"] in ("lineworld", "gridworld"):
             make_environment(spec["environment"])
