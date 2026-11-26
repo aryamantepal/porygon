@@ -16,6 +16,9 @@ from environments.pokemon_firered.buttons import Button
 from environments.pokemon_firered.emulator import Emulator, MgbaEmulator, rom_identity
 
 
+WAIT = "WAIT"  # no button: let the game run for one tap's worth of frames
+
+
 @dataclass(frozen=True)
 class FireRedConfig:
     rom_path: Path
@@ -53,13 +56,14 @@ class FireRedEnv:
         )
 
     def step(self, action: Action) -> StepResult:
-        button = self._button(action)
+        """Hold one button (or none, for WAIT), release, and observe once at the end."""
+        mask = self._mask(action)
         hold = action.hold_frames if action.hold_frames is not None else self.config.hold_frames
         if hold < 1:
             raise ValueError("hold_frames must be at least 1")
 
         started = time.perf_counter()
-        self._emulator.set_keys(button.mask)
+        self._emulator.set_keys(mask)
         self._advance(hold)
         self._emulator.set_keys(0)
         self._advance(self.config.release_frames)
@@ -83,7 +87,7 @@ class FireRedEnv:
         }
 
     def legal_actions(self) -> Sequence[Action]:
-        return [Press(button.name) for button in Button]
+        return [Press(button.name) for button in Button] + [Press(WAIT)]
 
     # Adapter operations, not called by agents
 
@@ -106,10 +110,12 @@ class FireRedEnv:
         for _ in range(frames):
             self._emulator.run_frame()
 
-    def _button(self, action: Action) -> Button:
+    def _mask(self, action: Action) -> int:
+        if isinstance(action, Press) and action.key == WAIT:
+            return 0
         if not isinstance(action, Press) or action.key not in Button.__members__:
             raise ValueError(f"not a FireRed action: {action!r}")
-        return Button[action.key]
+        return Button[action.key].mask
 
     def _state(self) -> dict[str, Any]:
         return {**self._location(), "badges": self._badges(), "party": self._party(), **self._roles()}
@@ -117,9 +123,9 @@ class FireRedEnv:
     def _roles(self) -> dict[str, Any]:
         """Role-snapshot fields (environments/roles.py): what a harness can plan and walk with.
 
-        `context` covers overworld, dialogue, and menu. Battle detection still
-        needs a verified read (no battle is reachable from the start state yet),
-        so a battle currently reports as "menu".
+        `context` covers battle, dialogue, busy (input locked: warps,
+        cutscenes, menus), and overworld. The `battle` block itself (options,
+        opponent) is not filled yet.
         """
         location = self._location()
         objects = self._object_events()
@@ -144,14 +150,16 @@ class FireRedEnv:
             "grid": grid,
             "walkable": ".",
             "places": places,
-            "controls": {"up": "UP", "down": "DOWN", "left": "LEFT", "right": "RIGHT", "confirm": "A", "cancel": "B"},
+            "controls": {"up": "UP", "down": "DOWN", "left": "LEFT", "right": "RIGHT", "confirm": "A", "cancel": "B", "wait": WAIT},
         }
 
     def _context(self) -> str:
+        if self._read_u8(self._symbols.main_flags) & sym.IN_BATTLE_BIT:
+            return "battle"
         if self._read_u8(self._symbols.text_window) == sym.TEXT_WINDOW_OPEN:
             return "dialogue"
-        if self._read_u8(self._symbols.modal_input) == sym.MODAL_INPUT_ON:
-            return "menu"
+        if self._read_u8(self._symbols.input_locked) == sym.INPUT_LOCKED:
+            return "busy"
         return "overworld"
 
     def _object_events(self) -> list[dict[str, Any]]:

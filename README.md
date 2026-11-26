@@ -104,6 +104,8 @@ Then put the built package on the venv's path and run the tests, including the o
 ls -d ~/src/mgba/build/python/lib.* > .venv/lib/python3.*/site-packages/mgba-local.pth
 uv run --group dev pytest
 PORYGON_ROM=roms/firered.gba PORYGON_STATE=saves/start.state uv run --group dev pytest tests/test_firered_rom.py
+# optional: a state saved inside a battle enables the battle-context test
+PORYGON_BATTLE_STATE=saves/battle.state
 ```
 
 ## Prior work

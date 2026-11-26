@@ -5,6 +5,7 @@ One decision at a time. Each `decide` call routes on the snapshot's context:
     battle    -> battle specialist (code rules out illegal options, model picks)
     dialogue  -> read it into the journal as leads, then dismiss it
     menu      -> model picks an option; code moves the cursor
+    busy      -> wait (no model call); back out with cancel if it lasts
     otherwise -> planner picks a tool; code runs it press by press
 
 A running tool keeps returning presses until it finishes, fails, or the game
@@ -66,6 +67,7 @@ class CrystalHarness:
         stuck_ladder: bool = True,
         intention_ticks: int = 60,
         max_calls_per_decision: int = 8,
+        busy_wait_limit: int = 6,
     ) -> None:
         self.model = model
         self.knowledge = KnowledgeGraph(backbone, knowledge_path)
@@ -73,6 +75,7 @@ class CrystalHarness:
         self.stuck_ladder = stuck_ladder
         self.intention_ticks = intention_ticks
         self.max_calls_per_decision = max_calls_per_decision
+        self.busy_wait_limit = busy_wait_limit
         self._trial = -1
         self._reset_trial("")
 
@@ -96,6 +99,7 @@ class CrystalHarness:
         self._battle_goal = "defeat"
         self._tick = 0
         self._summarized: set[str] = set()
+        self._busy_streak = 0
         self._stats = {"tools": 0, "tool_failures": 0, "maps": set(), "dialogues": 0, "help_requests": 0}
 
     def start_trial(self, goal: str) -> None:
@@ -129,12 +133,16 @@ class CrystalHarness:
                     return Decision(action, self._trace(turn), tuple(turn.calls))
                 continue
             context = (state or {}).get("context", "overworld")
+            if context != "busy":
+                self._busy_streak = 0
             if context == "battle" and state.get("battle"):
                 self._start_battle(state, keys, turn)
             elif context == "dialogue":
                 self._read_dialogue(state, keys, turn)
             elif context == "menu" and state.get("menu"):
                 self._pick_menu(state, keys, turn)
+            elif context == "busy":
+                self._wait_out(state, keys, turn)
             else:
                 self._plan(observation, keys, legal_actions, turn)
         turn.events.append({"type": "gave_up", "reason": f"{self.max_calls_per_decision} model calls without a press"})
@@ -210,6 +218,21 @@ class CrystalHarness:
             else:
                 turn.events.append({"type": "dialogue", "text": text})
         self._start("dialogue", "press", {"key": keys["confirm"]}, tools.press(keys["confirm"], 1), state)
+
+    def _wait_out(self, state, keys, turn: _Turn) -> None:
+        """The game ignores movement (a transition, cutscene, or undescribed menu).
+
+        Wait if the adapter offers a do-nothing action; if the lock outlasts
+        `busy_wait_limit` decisions, press cancel to back out of a menu.
+        """
+        self._busy_streak += 1
+        if "wait" in keys and self._busy_streak <= self.busy_wait_limit:
+            key, reason = keys["wait"], "waiting for the game to take input again"
+        else:
+            key, reason = keys["cancel"], f"still busy after {self._busy_streak - 1} waits; backing out"
+            self._busy_streak = 0
+        turn.events.append({"type": "busy", "press": key, "reason": reason})
+        self._start("busy", "press", {"key": key}, tools.press(key, 1), state)
 
     def _pick_menu(self, state, keys, turn: _Turn) -> None:
         menu = state["menu"]

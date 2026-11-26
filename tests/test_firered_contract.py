@@ -127,11 +127,15 @@ def test_rejects_unknown_action(tmp_path):
         env.step(Press("JUMP"))
 
 
-def test_legal_actions_are_the_ten_buttons(tmp_path):
-    env, _ = make_env(tmp_path)
+def test_legal_actions_are_the_ten_buttons_and_wait(tmp_path):
+    env, fake = make_env(tmp_path)
     assert {action.key for action in env.legal_actions()} == {
-        "A", "B", "SELECT", "START", "RIGHT", "LEFT", "UP", "DOWN", "R", "L",
+        "A", "B", "SELECT", "START", "RIGHT", "LEFT", "UP", "DOWN", "R", "L", "WAIT",
     }
+    before = env.reset()
+    result = env.step(Press("WAIT"))
+    assert result.frames_advanced == env.config.hold_frames + env.config.release_frames
+    assert result.observation.state["x"] == before.state["x"]
 
 
 def test_recording_writes_one_line_per_transition(tmp_path):

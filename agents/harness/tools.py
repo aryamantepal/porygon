@@ -93,10 +93,14 @@ def go_to(observation: Observation, target: tuple[int, int], keys: dict[str, str
     heading = None
     tried: list[str] = []  # directions already pushed while standing on the door
     for _ in range(MAX_TOOL_PRESSES):
-        if state.get("context", "overworld") != "overworld":
-            raise Interrupted(f"the game switched to {state.get('context')}")
         if state.get("map") != start_map:
             return f"went through to {state.get('map')}"
+        context = state.get("context", "overworld")
+        if context == "busy" and "wait" in keys:
+            state = (yield Press(keys["wait"])).state  # a step or warp still finishing
+            continue
+        if context != "overworld":
+            raise Interrupted(f"the game switched to {context}")
         position = tuple(state["position"])
         if adjacent and abs(position[0] - target[0]) + abs(position[1] - target[1]) == 1:
             facing = _direction(position, target)
@@ -113,7 +117,7 @@ def go_to(observation: Observation, target: tuple[int, int], keys: dict[str, str
             tried.append(push)
             for _ in range(2):  # the first press may only turn the player
                 state = (yield Press(keys[push])).state
-                if state.get("map") != start_map or tuple(state["position"]) != position:
+                if state.get("map") != start_map or tuple(state["position"]) != position or state.get("context") == "busy":
                     break
             continue
         goals = {(target[0] + dx, target[1] + dy) for dx, dy in DELTAS.values()} if adjacent else {target}

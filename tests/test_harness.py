@@ -164,3 +164,16 @@ def test_visual_mode_offers_only_press(tmp_path):
     run(run_dir=tmp_path / "run", env=env, player=CrystalHarness(model), goal=MILESTONE, budgets=Budgets(max_steps=2))
     system = model.calls[0].messages[0]["content"]
     assert "go_to" not in system and "- press" in system
+
+
+def test_busy_waits_without_calling_the_model(tmp_path):
+    from environments.protocol import Observation, Press
+
+    model = planner_model(to_milestone)
+    harness = CrystalHarness(model, busy_wait_limit=2)
+    harness.start_trial(MILESTONE.text)
+    state = {"context": "busy"}
+    legal = [Press(k) for k in ("UP", "DOWN", "LEFT", "RIGHT", "A", "B", "WAIT")]
+    busy = Observation(ObservationMode.STRUCTURED, 0, None, {**state, "controls": {"wait": "WAIT"}})
+    keys = [harness.decide(busy, legal).action.key for _ in range(3)]
+    assert keys == ["WAIT", "WAIT", "B"] and model.calls == []

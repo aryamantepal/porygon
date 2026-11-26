@@ -5,8 +5,10 @@ knowing the game. The harness sees "a door" or "a milestone", never a game's
 own names for things. Every field is optional; a player must cope with any of
 them missing.
 
-    context    "overworld" | "dialogue" | "menu" | "battle"
-               what the game is waiting for right now
+    context    "overworld" | "dialogue" | "menu" | "battle" | "busy"
+               what the game is waiting for right now; "busy" means it is not
+               taking movement input (a transition, a cutscene, or a menu the
+               adapter cannot describe)
     map        an id for the current map; it changes when the player goes through a door
     position   [x, y] of the player on the current map
     facing     "UP" | "DOWN" | "LEFT" | "RIGHT"
@@ -32,7 +34,8 @@ them missing.
 Keys the harness uses to act come from `legal_actions()`. The adapter says
 which button does what through `controls` (all optional):
 
-    controls   {"up", "down", "left", "right", "confirm", "cancel"} -> action key
+    controls   {"up", "down", "left", "right", "confirm", "cancel", "wait"} -> action key
+               ("wait" is an action that presses nothing, if the adapter has one)
 """
 
 DEFAULT_WALKABLE = "."

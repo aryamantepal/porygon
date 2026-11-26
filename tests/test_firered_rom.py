@@ -87,7 +87,7 @@ def test_harness_navigator_takes_the_stairs(env, tmp_path):
     assert result.success and result.model_calls == 1
 
 
-def test_context_follows_dialogue_and_menu(env):
+def test_context_follows_dialogue_and_locked_input(env):
     assert env.reset().state["context"] == "overworld"
     assert env.step(Press("A")).observation.state["context"] == "dialogue"  # the console above the start tile
     for _ in range(12):
@@ -96,4 +96,17 @@ def test_context_follows_dialogue_and_menu(env):
     assert env.observe().state["context"] == "overworld"
     env.reset()
     env.step(Press("START"))
-    assert env.observe().state["context"] == "menu"
+    assert env.observe().state["context"] == "busy"
+
+
+BATTLE_STATE = os.environ.get("PORYGON_BATTLE_STATE")
+
+
+@pytest.mark.skipif(not BATTLE_STATE, reason="needs PORYGON_BATTLE_STATE (a state inside a battle)")
+def test_context_reports_battle_until_it_ends(env):
+    env.load(Path(BATTLE_STATE))
+    assert env.observe().state["context"] == "battle"
+    for _ in range(400):
+        if env.step(Press("A")).observation.state["context"] != "battle":
+            break
+    assert env.observe().state["context"] != "battle"

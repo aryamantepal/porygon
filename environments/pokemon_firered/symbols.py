@@ -29,10 +29,11 @@ class Symbols:
     object_events: int  # gObjectEvents, EWRAM
     map_header: int  # gMapHeader, EWRAM
     backup_map_layout: int  # gBackupMapLayout, IWRAM
+    main_flags: int  # the gMain byte holding inBattle (bit 1); checked through the rival battle
     # Unnamed bytes picked by diffing memory between overworld, dialogue, and
     # Start-menu states, then checked across two dialogues in two maps:
     text_window: int  # 2 while a field text box is up, including its last line
-    modal_input: int  # 1 while a text box or a menu holds the input
+    input_locked: int  # 1 while the player cannot move: text, menus, warps, cutscenes
 
 
 # Offsets inside SaveBlock1 (include/global.h).
@@ -65,8 +66,9 @@ OBJ_FACING = 0x18
 PLAYER_LOCAL_ID = 0xFF
 FACING = {1: "DOWN", 2: "UP", 3: "LEFT", 4: "RIGHT"}
 
+IN_BATTLE_BIT = 0x02
 TEXT_WINDOW_OPEN = 2
-MODAL_INPUT_ON = 1
+INPUT_LOCKED = 1
 
 # struct MapHeader: mapLayout ptr at 0x0, events ptr at 0x4.
 # struct MapEvents: objectEventCount, warpCount, coordEventCount, bgEventCount (u8),
@@ -97,8 +99,9 @@ TABLES: dict[tuple[str, int], Symbols] = {
         object_events=0x02036E38,
         map_header=0x02036DFC,
         backup_map_layout=0x03005040,
+        main_flags=0x03003529,
         text_window=0x03000EB1,
-        modal_input=0x03000F9C,
+        input_locked=0x03000F9C,
     ),
 }
 
