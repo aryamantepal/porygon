@@ -77,17 +77,21 @@ def _direction(a: tuple[int, int], b: tuple[int, int]) -> str:
 # Tools
 
 
-def go_to(observation: Observation, target: tuple[int, int], keys: dict[str, str], *, adjacent: bool = False) -> Step:
+def go_to(observation: Observation, target: tuple[int, int], keys: dict[str, str], *, adjacent: bool = False, door: bool = False) -> Step:
     """Walk to `target` (or next to it, facing it, when `adjacent`).
 
     Replans after every press. A press that does not move the player (a turn,
     or something in the way) is retried once; a tile that still will not take
-    the player is marked blocked and the route goes around it.
+    the player is marked blocked and the route goes around it. Some doors
+    (stairs, mats) only lead somewhere when you keep walking into them, so on
+    arriving at a `door` the navigator keeps stepping the way it was going.
     """
     state = observation.state
     start_map = state.get("map")
     blocked: set[tuple[int, int]] = set()
     misses = 0
+    heading = None
+    tried: list[str] = []  # directions already pushed while standing on the door
     for _ in range(MAX_TOOL_PRESSES):
         if state.get("context", "overworld") != "overworld":
             raise Interrupted(f"the game switched to {state.get('context')}")
@@ -101,13 +105,24 @@ def go_to(observation: Observation, target: tuple[int, int], keys: dict[str, str
             state = (yield Press(keys[facing])).state
             continue
         if not adjacent and position == target:
-            return f"arrived at {list(target)}"
+            if not door:
+                return f"arrived at {list(target)}"
+            push = _next_push(heading, tried)
+            if push is None:
+                raise ToolError(f"standing on the door at {list(target)}, but no direction led anywhere")
+            tried.append(push)
+            for _ in range(2):  # the first press may only turn the player
+                state = (yield Press(keys[push])).state
+                if state.get("map") != start_map or tuple(state["position"]) != position:
+                    break
+            continue
         goals = {(target[0] + dx, target[1] + dy) for dx, dy in DELTAS.values()} if adjacent else {target}
         path = find_path(state["grid"], state.get("walkable", DEFAULT_WALKABLE), position, goals, blocked)
         if path is None or len(path) < 2:
             raise ToolError(f"no path from {list(position)} to {list(target)}")
         nxt = path[1]
-        state = (yield Press(keys[_direction(position, nxt)])).state
+        heading = _direction(position, nxt)
+        state = (yield Press(keys[heading])).state
         if state.get("map") == start_map and tuple(state["position"]) == position:
             misses += 1
             if misses >= 2:
@@ -116,6 +131,18 @@ def go_to(observation: Observation, target: tuple[int, int], keys: dict[str, str
         else:
             misses = 0
     raise ToolError(f"gave up after {MAX_TOOL_PRESSES} presses")
+
+
+OPPOSITE = {"up": "down", "down": "up", "left": "right", "right": "left"}
+
+
+def _next_push(heading: str | None, tried: list[str]) -> str | None:
+    """Directions to try on a door: the way we were going first, back the way we came last."""
+    order = [heading] if heading else []
+    order += [d for d in DELTAS if d != heading and d != OPPOSITE.get(heading)]
+    if heading:
+        order.append(OPPOSITE[heading])
+    return next((d for d in order if d not in tried), None)
 
 
 def talk_to(observation: Observation, target: tuple[int, int], keys: dict[str, str]) -> Step:

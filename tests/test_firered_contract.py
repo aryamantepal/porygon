@@ -77,6 +77,16 @@ def test_structured_observation_has_no_frame(tmp_path):
     assert observation.state["party"] == [{"level": 5, "hp": 19, "max_hp": 20}]
 
 
+def test_role_snapshot_fields(tmp_path):
+    env, _ = make_env(tmp_path, ObservationMode.STRUCTURED)
+    state = env.reset().state
+    assert state["map"] == "3.0" and state["position"] == [5, 7] and state["facing"] == "UP"
+    assert state["grid"] == ["#....", ".....", "....."]
+    assert state["places"] == [{"id": "door_0", "role": "door", "position": [1, 0], "leads_to": "3.1"}]
+    env.step(Press("RIGHT"))
+    assert env.observe().state["position"] == [6, 7]
+
+
 def test_progress_survives_save_and_reload(tmp_path):
     fake = FakeGBA(Path("unused.gba"))
     fake.set_badge(0)

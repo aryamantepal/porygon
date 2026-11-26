@@ -152,6 +152,8 @@ class CrystalHarness:
             return action
         except StopIteration as done:
             outcome, result = "done", done.value
+            if running.presses == 0 and running.handler == "planner":
+                outcome, result = "failed", f"nothing to do: {done.value}"
         except tools.Interrupted as interruption:
             outcome, result = "interrupted", str(interruption)
         except tools.ToolError as failure:
@@ -280,20 +282,20 @@ class CrystalHarness:
             if key not in {a.key for a in legal_actions}:
                 raise tools.ToolError(f"{key!r} is not a legal action")
             return tools.press(key, max(1, min(int(args.get("times", 1)), 20)))
-        target = self._target(args, state)
+        target, role = self._target(args, state)
         if tool == "go_to":
-            return tools.go_to(observation, target, keys)
+            return tools.go_to(observation, target, keys, door=role == "door")
         return tools.talk_to(observation, target, keys)
 
-    def _target(self, args, state) -> tuple[int, int]:
+    def _target(self, args, state) -> tuple[tuple[int, int], str]:
         if "place" in args:
             for place in state.get("places", []):
                 if place.get("id") == args["place"]:
-                    return tuple(place["position"])
+                    return tuple(place["position"]), place.get("role", "")
             raise tools.ToolError(f"no place {args['place']!r} on this map")
         position = args.get("position")
         if isinstance(position, list) and len(position) == 2 and all(isinstance(v, int) for v in position):
-            return tuple(position)
+            return tuple(position), ""
         raise tools.ToolError('args need "place" or "position": [x, y]')
 
     def _update_intention(self, reply, why, turn: _Turn) -> None:

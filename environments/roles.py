@@ -19,6 +19,8 @@ them missing.
                  role "person"     someone to talk to (stand next to, face, press the talk key)
                  role "milestone"  something that marks progress
                  role "item"       something to pick up
+                 role "object"     something on the map that blocks the way and may
+                                   react to the talk key (the adapter cannot tell more)
                ids are stable within a run so a planner can name them
     dialogue   {"text"} while context is "dialogue"
     menu       {"prompt", "options": [str], "cursor": int} while context is "menu"

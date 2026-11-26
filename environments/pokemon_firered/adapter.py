@@ -112,7 +112,78 @@ class FireRedEnv:
         return Button[action.key]
 
     def _state(self) -> dict[str, Any]:
-        return {**self._location(), "badges": self._badges(), "party": self._party()}
+        return {**self._location(), "badges": self._badges(), "party": self._party(), **self._roles()}
+
+    def _roles(self) -> dict[str, Any]:
+        """Role-snapshot fields (environments/roles.py): what a harness can plan and walk with.
+
+        `context` is not filled yet: dialogue, menu, and battle detection still
+        need verified reads, and a wrong context is worse than none.
+        """
+        location = self._location()
+        objects = self._object_events()
+        player = next((o for o in objects if o["local_id"] == sym.PLAYER_LOCAL_ID), None)
+        grid = self._grid()
+        places = [
+            {"id": f"door_{index}", "role": "door", "position": [x, y], "leads_to": f"{group}.{num}"}
+            for index, (x, y, group, num) in enumerate(self._warps())
+        ]
+        for obj in objects:
+            if obj["local_id"] == sym.PLAYER_LOCAL_ID:
+                continue
+            places.append({"id": f"object_{obj['local_id']}", "role": "object", "position": obj["position"]})
+            x, y = obj["position"]
+            if 0 <= y < len(grid) and 0 <= x < len(grid[y]):
+                grid[y] = grid[y][:x] + "#" + grid[y][x + 1 :]
+        return {
+            "map": f"{location['map_group']}.{location['map_num']}",
+            "position": player["position"] if player else [location["x"], location["y"]],
+            "facing": player["facing"] if player else None,
+            "grid": grid,
+            "walkable": ".",
+            "places": places,
+            "controls": {"up": "UP", "down": "DOWN", "left": "LEFT", "right": "RIGHT", "confirm": "A", "cancel": "B"},
+        }
+
+    def _object_events(self) -> list[dict[str, Any]]:
+        objects = []
+        for index in range(sym.OBJECT_EVENT_COUNT):
+            base = self._symbols.object_events + index * sym.OBJECT_EVENT_SIZE
+            if not self._read_u32(base) & 1:
+                continue
+            x, y = struct.unpack("<hh", self._emulator.read(base + sym.OBJ_COORDS, 4))
+            objects.append(
+                {
+                    "local_id": self._read_u8(base + sym.OBJ_LOCAL_ID),
+                    "graphics": self._read_u8(base + sym.OBJ_GRAPHICS),
+                    "position": [x - sym.MAP_OFFSET, y - sym.MAP_OFFSET],
+                    "facing": sym.FACING.get(self._read_u8(base + sym.OBJ_FACING) & 0xF),
+                }
+            )
+        return objects
+
+    def _warps(self) -> list[tuple[int, int, int, int]]:
+        events = self._read_u32(self._symbols.map_header + sym.MAP_EVENTS)
+        count = self._read_u8(events + sym.EVENTS_WARP_COUNT)
+        table = self._read_u32(events + sym.EVENTS_WARPS)
+        warps = []
+        for index in range(count):
+            x, y, _, _, num, group = struct.unpack("<hhBBBB", self._emulator.read(table + index * sym.WARP_SIZE, sym.WARP_SIZE))
+            warps.append((x, y, group, num))
+        return warps
+
+    def _grid(self) -> list[str]:
+        """Collision for the current map, without the layout's border."""
+        width, height, pointer = struct.unpack("<iiI", self._emulator.read(self._symbols.backup_map_layout, 12))
+        cells = self._emulator.read(pointer, width * height * 2)
+        rows = []
+        for y in range(sym.MAP_OFFSET, height - sym.MAP_OFFSET):
+            row = []
+            for x in range(sym.MAP_OFFSET, width - sym.MAP_OFFSET):
+                value = struct.unpack_from("<H", cells, (y * width + x) * 2)[0]
+                row.append("#" if value >> sym.COLLISION_SHIFT & sym.COLLISION_MASK else ".")
+            rows.append("".join(row))
+        return rows
 
     def _read_u8(self, address: int) -> int:
         return self._emulator.read(address, 1)[0]

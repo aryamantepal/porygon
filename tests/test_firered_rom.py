@@ -64,3 +64,24 @@ def test_progress_survives_save_and_reload(env, tmp_path):
     env.reset()
     env.load(checkpoint)
     assert env.get_progress() == saved
+
+
+def test_role_snapshot_at_the_bedroom_start(env):
+    state = env.reset().state
+    assert state["map"] == "4.1" and state["position"] == [6, 6] and state["facing"] == "UP"
+    assert len(state["grid"]) == 9 and {len(row) for row in state["grid"]} == {13}
+    assert state["grid"][5][6] == "#"  # the console above the start tile blocks the way up
+    assert {"id": "door_0", "role": "door", "position": [10, 2], "leads_to": "4.0"} in state["places"]
+
+
+def test_harness_navigator_takes_the_stairs(env, tmp_path):
+    import json
+
+    from agents.harness import CrystalHarness
+    from agents.models import ScriptedModel
+    from evaluation.goals import Goal
+    from evaluation.runner import Budgets, run
+
+    plan = json.dumps({"why": "stairs", "tool": "go_to", "args": {"place": "door_0"}, "intention": "go downstairs"})
+    result = run(run_dir=tmp_path / "run", env=env, player=CrystalHarness(ScriptedModel(lambda m: plan)), goal=Goal("down", "Go downstairs.", {"map": [4, 0]}), budgets=Budgets(max_steps=40))[0]
+    assert result.success and result.model_calls == 1
