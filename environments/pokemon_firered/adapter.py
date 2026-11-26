@@ -137,6 +137,10 @@ class FireRedEnv:
             {"id": f"door_{index}", "role": "door", "position": [x, y], "leads_to": f"{group}.{num}"}
             for index, (x, y, group, num) in enumerate(self._warps())
         ]
+        for side, (group, num) in self._connections():
+            tile = _edge_tile(grid, side)
+            if tile is not None:  # an edge you cannot walk onto (water) is left out
+                places.append({"id": f"exit_{side}", "role": "door", "position": list(tile), "leads_to": f"{group}.{num}"})
         for obj in objects:
             if obj["local_id"] == sym.PLAYER_LOCAL_ID:
                 continue
@@ -238,6 +242,20 @@ class FireRedEnv:
             warps.append((x, y, group, num))
         return warps
 
+    def _connections(self) -> list[tuple[str, tuple[int, int]]]:
+        """Map edges that lead straight into a neighboring map (no warp)."""
+        pointer = self._read_u32(self._symbols.map_header + sym.MAP_CONNECTIONS)
+        if not pointer:
+            return []
+        count, table = struct.unpack("<iI", self._emulator.read(pointer, 8))
+        out = []
+        for index in range(max(0, min(count, 8))):
+            raw = self._emulator.read(table + index * sym.CONNECTION_SIZE, sym.CONNECTION_SIZE)
+            side = sym.CONNECTION_SIDES.get(raw[0])
+            if side:
+                out.append((side, (raw[8], raw[9])))
+        return out
+
     def _grid(self) -> list[str]:
         """Collision for the current map, without the layout's border."""
         width, height, pointer = struct.unpack("<iiI", self._emulator.read(self._symbols.backup_map_layout, 12))
@@ -296,6 +314,22 @@ class FireRedEnv:
                 }
             )
         return party
+
+
+def _edge_tile(grid: list[str], side: str) -> tuple[int, int] | None:
+    """The walkable tile on one edge of the map closest to that edge's middle."""
+    if not grid:
+        return None
+    height, width = len(grid), len(grid[0])
+    if side in ("north", "south"):
+        y = 0 if side == "north" else height - 1
+        tiles = [(x, y) for x in range(width) if grid[y][x] == "."]
+        middle = width / 2
+        return min(tiles, key=lambda t: abs(t[0] - middle), default=None)
+    x = 0 if side == "west" else width - 1
+    tiles = [(x, y) for y in range(height) if grid[y][x] == "."]
+    middle = height / 2
+    return min(tiles, key=lambda t: abs(t[1] - middle), default=None)
 
 
 def _grid_keys(cursor: int, target: int) -> list[str]:

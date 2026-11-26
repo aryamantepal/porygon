@@ -102,6 +102,11 @@ INPUT_LOCKED = 1
 # then pointers; warps at 0x8. struct WarpEvent (8 bytes): x s16, y s16,
 # elevation u8, warpId u8, mapNum u8, mapGroup u8.
 MAP_EVENTS = 0x4
+MAP_CONNECTIONS = 0xC
+# struct MapConnections: count s32, connections ptr. struct MapConnection (12 bytes):
+# direction u8 (1 south, 2 north, 3 west, 4 east), offset s32 at 0x4, mapGroup u8 at 0x8, mapNum u8 at 0x9.
+CONNECTION_SIZE = 12
+CONNECTION_SIDES = {1: "south", 2: "north", 3: "west", 4: "east"}
 EVENTS_WARP_COUNT = 0x1
 EVENTS_WARPS = 0x8
 WARP_SIZE = 8

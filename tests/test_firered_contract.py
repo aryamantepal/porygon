@@ -181,3 +181,12 @@ def test_environments_import_no_agents_models_or_evaluation():
                 continue
             for name in names:
                 assert name.split(".")[0] not in forbidden, f"{path} imports {name}"
+
+
+def test_edge_tile_picks_the_walkable_tile_nearest_the_middle():
+    from environments.pokemon_firered.adapter import _edge_tile
+
+    grid = ["##..####", "#......#", "#......#", "########"]
+    assert _edge_tile(grid, "north") == (3, 0)
+    assert _edge_tile(grid, "south") is None  # no walkable tile: the exit is left out
+    assert _edge_tile(["#.", "..", "#."], "east") == (1, 1)
