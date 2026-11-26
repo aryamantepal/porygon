@@ -6,6 +6,8 @@ to its own controls and memory; agents and evaluation only see this file.
 
 from __future__ import annotations
 
+import struct
+import zlib
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from enum import Enum
@@ -33,6 +35,23 @@ class Frame:
     width: int
     height: int
     rgba: bytes
+
+    def to_png(self) -> bytes:
+        def chunk(kind: bytes, data: bytes) -> bytes:
+            body = kind + data
+            return struct.pack(">I", len(data)) + body + struct.pack(">I", zlib.crc32(body))
+
+        stride = self.width * 4
+        scanlines = b"".join(
+            b"\x00" + self.rgba[y * stride : (y + 1) * stride] for y in range(self.height)
+        )
+        header = struct.pack(">IIBBBBB", self.width, self.height, 8, 6, 0, 0, 0)
+        return (
+            b"\x89PNG\r\n\x1a\n"
+            + chunk(b"IHDR", header)
+            + chunk(b"IDAT", zlib.compress(scanlines))
+            + chunk(b"IEND", b"")
+        )
 
 
 @dataclass(frozen=True)
