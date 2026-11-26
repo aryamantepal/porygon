@@ -9,14 +9,12 @@ reads only the protocol types.
 from __future__ import annotations
 
 import json
-import struct
-import zlib
 from collections.abc import Sequence
 from dataclasses import asdict
 from pathlib import Path
 from typing import Any
 
-from environments.protocol import Action, Environment, Frame, Observation, Progress, StepResult
+from environments.protocol import Action, Environment, Observation, Progress, StepResult
 
 
 class RecordingEnvironment:
@@ -66,7 +64,7 @@ class RecordingEnvironment:
         frame_path = None
         if observation.frame is not None:
             frame_path = f"frames/{self._episode:04d}/{self._index:06d}.png"
-            (self._run_dir / frame_path).write_bytes(encode_png(observation.frame))
+            (self._run_dir / frame_path).write_bytes(observation.frame.to_png())
         return {
             "episode": self._episode,
             "step": self._index,
@@ -81,20 +79,3 @@ class RecordingEnvironment:
         self._log.write(json.dumps(record) + "\n")
         self._log.flush()
 
-
-def encode_png(frame: Frame) -> bytes:
-    def chunk(kind: bytes, data: bytes) -> bytes:
-        body = kind + data
-        return struct.pack(">I", len(data)) + body + struct.pack(">I", zlib.crc32(body))
-
-    stride = frame.width * 4
-    scanlines = b"".join(
-        b"\x00" + frame.rgba[y * stride : (y + 1) * stride] for y in range(frame.height)
-    )
-    header = struct.pack(">IIBBBBB", frame.width, frame.height, 8, 6, 0, 0, 0)
-    return (
-        b"\x89PNG\r\n\x1a\n"
-        + chunk(b"IHDR", header)
-        + chunk(b"IDAT", zlib.compress(scanlines))
-        + chunk(b"IEND", b"")
-    )
