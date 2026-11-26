@@ -32,6 +32,7 @@ class ModelCall:
     completion_tokens: int | None
     latency_seconds: float
     error: str | None = None
+    context_length: int | None = None  # the window the server was asked for; a prompt near it may have been cut
 
 
 class ChatModel(Protocol):
@@ -57,6 +58,7 @@ class OllamaChat:
     max_tokens: int = 512
     seed: int | None = 0
     timeout_seconds: float = 600.0
+    context_length: int = 16384  # Ollama's default is 4096 and it truncates silently
 
     def chat(self, messages: Sequence[Message], *, think: bool, stop: Sequence[str] = ()) -> ModelCall:
         body = {
@@ -74,6 +76,7 @@ class OllamaChat:
             "options": {
                 "temperature": self.temperature,
                 "num_predict": self.max_tokens,
+                "num_ctx": self.context_length,
                 **({"seed": self.seed} if self.seed is not None else {}),
                 **({"stop": list(stop)} if stop else {}),
             },
@@ -101,6 +104,7 @@ class OllamaChat:
             prompt_tokens=reply.get("prompt_eval_count"),
             completion_tokens=reply.get("eval_count"),
             latency_seconds=time.perf_counter() - started,
+            context_length=self.context_length,
         )
 
 

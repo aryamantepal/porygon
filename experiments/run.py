@@ -37,7 +37,7 @@ def make_environment(spec: dict[str, Any]) -> Environment:
 
 def make_model(spec: dict[str, Any]) -> ChatModel:
     if spec.get("provider", "ollama") == "ollama":
-        options = {key: spec[key] for key in ("host", "temperature", "max_tokens", "seed") if key in spec}
+        options = {key: spec[key] for key in ("host", "temperature", "max_tokens", "seed", "context_length") if key in spec}
         return OllamaChat(spec["id"], **options)
     raise ValueError(f"unknown model provider {spec['provider']!r}")
 

@@ -143,6 +143,7 @@ def test_ollama_request_shape_and_reply():
     server.server_close()
     assert seen["path"] == "/api/chat"
     assert seen["body"]["think"] is False and seen["body"]["stream"] is False
+    assert seen["body"]["options"]["num_ctx"] == 16384 and call.context_length == 16384
     assert seen["body"]["messages"][0]["images"] == ["cG5n"]
     assert call.output == "RIGHT" and call.thinking is None and call.prompt_tokens == 12
     assert call.messages[0]["images"] == 1
