@@ -164,3 +164,16 @@ def test_visual_mode_offers_only_press(tmp_path):
     run(run_dir=tmp_path / "run", env=env, player=CrystalHarness(model), goal=MILESTONE, budgets=Budgets(max_steps=2))
     system = model.calls[0].messages[0]["content"]
     assert "go_to" not in system and "- press" in system
+
+
+def test_malformed_args_are_failures_not_crashes(tmp_path):
+    bad = iter([
+        {"why": "x", "tool": "go_to", "args": "door_to_town"},
+        {"why": "x", "tool": "press", "args": {"key": "DOWN", "times": "twice"}},
+    ])
+    model = planner_model(lambda state: next(bad, to_milestone(state)))
+    results = run(run_dir=tmp_path / "run", env=GridWorld(), player=CrystalHarness(model), goal=MILESTONE, budgets=Budgets(max_steps=60))
+    assert results[0].success
+    records = records_of(tmp_path / "run")
+    assert events(records, "plan")[0]["error"].startswith("reply was not")
+    assert "whole number" in events(records, "tool_end")[0]["result"]
