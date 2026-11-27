@@ -37,7 +37,7 @@ class ModelCall:
 class ChatModel(Protocol):
     model_id: str
 
-    def chat(self, messages: Sequence[Message], *, think: bool) -> ModelCall: ...
+    def chat(self, messages: Sequence[Message], *, think: bool, stop: Sequence[str] = ()) -> ModelCall: ...
 
 
 def loggable(messages: Sequence[Message]) -> list[dict[str, Any]]:
@@ -58,7 +58,7 @@ class OllamaChat:
     seed: int | None = 0
     timeout_seconds: float = 600.0
 
-    def chat(self, messages: Sequence[Message], *, think: bool) -> ModelCall:
+    def chat(self, messages: Sequence[Message], *, think: bool, stop: Sequence[str] = ()) -> ModelCall:
         body = {
             "model": self.model_id,
             "messages": [
@@ -75,6 +75,7 @@ class OllamaChat:
                 "temperature": self.temperature,
                 "num_predict": self.max_tokens,
                 **({"seed": self.seed} if self.seed is not None else {}),
+                **({"stop": list(stop)} if stop else {}),
             },
         }
         request = urllib.request.Request(
@@ -111,7 +112,7 @@ class ScriptedModel:
     model_id: str = "scripted"
     calls: list[ModelCall] = field(default_factory=list)
 
-    def chat(self, messages: Sequence[Message], *, think: bool) -> ModelCall:
+    def chat(self, messages: Sequence[Message], *, think: bool, stop: Sequence[str] = ()) -> ModelCall:
         call = ModelCall(self.model_id, loggable(messages), self.reply(messages), None, 0, 0, 0.0)
         self.calls.append(call)
         return call
