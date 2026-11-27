@@ -69,3 +69,10 @@ def test_invalid_action_is_recorded_in_history():
     assert player.decide(observation, env.legal_actions()).action is None
     player.decide(observation, env.legal_actions())
     assert "Action 1: (invalid: JUMP)" in model.calls[-1].messages[1]["content"]
+
+
+def test_action_label_must_start_a_line():
+    from agents.react import _split
+
+    thought, action = _split("Thought 1: the best action: head for the stairs.\nAction 1: DOWN")
+    assert action == "DOWN" and "head for the stairs" in thought
