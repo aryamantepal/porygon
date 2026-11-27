@@ -185,3 +185,14 @@ def test_iterative_prompting_off_gives_one_attempt_without_feedback(tmp_path):
 
 def test_mechanisms_are_recorded():
     assert Voyager(scripted(), curriculum=False).mechanisms()["curriculum"] is False
+
+
+def test_a_skill_cannot_call_itself():
+    from agents.voyager.skills import SkillError, parse
+
+    try:
+        parse("skill walk_right\nRIGHT\nrepeat 2:\n  call walk_right", ["RIGHT"])
+    except SkillError as error:
+        assert "calls itself" in str(error)
+    else:
+        raise AssertionError("a self-calling skill parsed")

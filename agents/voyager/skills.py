@@ -106,7 +106,20 @@ def parse(source: str, legal_keys: Sequence[str]) -> Program:
         raise SkillError(f"line {rest[0][0]}: unexpected indentation")
     if not body:
         raise SkillError("the program has no statements")
+    if match.group(1) in _calls(body):
+        # it would pass verification against the old version, then call itself once stored
+        raise SkillError(f"`{match.group(1)}` calls itself; call another skill or repeat the steps")
     return Program(match.group(1), body, source.strip())
+
+
+def _calls(body) -> set[str]:
+    names = set()
+    for statement in body:
+        if isinstance(statement, Call):
+            names.add(statement.name)
+        elif isinstance(statement, (Repeat, Until)):
+            names |= _calls(statement.body)
+    return names
 
 
 def _parse_block(lines, indent, legal_keys):
