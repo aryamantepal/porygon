@@ -1,0 +1,40 @@
+{
+  "nodes": {
+    "house": {
+      "role": "place",
+      "about": "where you start; one door leads to town"
+    },
+    "town": {
+      "role": "place",
+      "about": "has a patch of grass and a milestone"
+    },
+    "person": {
+      "role": "person",
+      "about": "lives in the house and knows the area"
+    },
+    "milestone": {
+      "role": "milestone",
+      "about": "marks progress; it is in town"
+    }
+  },
+  "edges": [
+    [
+      "person",
+      "lives_in",
+      "house"
+    ],
+    [
+      "house",
+      "door_to",
+      "town"
+    ],
+    [
+      "milestone",
+      "in",
+      "town"
+    ]
+  ],
+  "recipes": {
+    "catching": "Weaken the creature with weak attacks first, then use the catch option."
+  }
+}
