@@ -56,11 +56,14 @@ class OllamaChat:
     host: str = "http://localhost:11434"
     temperature: float = 0.0
     max_tokens: int = 512
-    seed: int | None = 0
+    seed: int | None = 0  # first call's seed; each call adds one, so trials differ but the run replays
     timeout_seconds: float = 600.0
     context_length: int = 16384  # Ollama's default is 4096 and it truncates silently
+    _calls: int = field(default=0, init=False, repr=False)
 
     def chat(self, messages: Sequence[Message], *, think: bool, stop: Sequence[str] = ()) -> ModelCall:
+        seed = None if self.seed is None else self.seed + self._calls
+        self._calls += 1
         body = {
             "model": self.model_id,
             "messages": [
@@ -77,7 +80,7 @@ class OllamaChat:
                 "temperature": self.temperature,
                 "num_predict": self.max_tokens,
                 "num_ctx": self.context_length,
-                **({"seed": self.seed} if self.seed is not None else {}),
+                **({"seed": seed} if seed is not None else {}),
                 **({"stop": list(stop)} if stop else {}),
             },
         }

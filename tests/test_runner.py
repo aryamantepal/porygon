@@ -121,12 +121,13 @@ def test_render_respects_mode():
 
 
 def test_ollama_request_shape_and_reply():
-    seen = {}
+    seen = {"seeds": []}
 
     class Handler(BaseHTTPRequestHandler):
         def do_POST(self):
             seen["path"] = self.path
             seen["body"] = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+            seen["seeds"].append(seen["body"]["options"]["seed"])
             reply = json.dumps({"message": {"content": "RIGHT", "thinking": ""}, "prompt_eval_count": 12, "eval_count": 1}).encode()
             self.send_response(200)
             self.send_header("Content-Length", str(len(reply)))
@@ -137,10 +138,13 @@ def test_ollama_request_shape_and_reply():
             pass
 
     server = HTTPServer(("127.0.0.1", 0), Handler)
-    threading.Thread(target=server.handle_request, daemon=True).start()
-    model = OllamaChat("test-model", host=f"http://127.0.0.1:{server.server_port}")
+    threading.Thread(target=lambda: [server.handle_request() for _ in range(2)], daemon=True).start()
+    model = OllamaChat("test-model", host=f"http://127.0.0.1:{server.server_port}", seed=7)
+    model.chat([Message("user", "go")], think=False)
     call = model.chat([Message("user", "go", images=[b"png"])], think=False)
     server.server_close()
+    # a fixed seed would make every trial of a memoryless player identical, even with temperature > 0
+    assert seen["seeds"] == [7, 8]
     assert seen["path"] == "/api/chat"
     assert seen["body"]["think"] is False and seen["body"]["stream"] is False
     assert seen["body"]["options"]["num_ctx"] == 16384 and call.context_length == 16384
