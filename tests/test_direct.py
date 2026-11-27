@@ -45,7 +45,7 @@ def test_trace_is_absent_and_thinking_off(tmp_path):
     record = json.loads((run_dir / "trials/000/steps.jsonl").read_text().splitlines()[1])
     assert record["decision"]["trace"] is None
     config = json.loads((run_dir / "config.json").read_text())
-    assert config["mechanisms"] == {"history": False, "thinking": False}
+    assert config["mechanisms"] == {"history": False, "thinking": False, "few_shot": False}
 
 
 def test_experiment_configs_parse():

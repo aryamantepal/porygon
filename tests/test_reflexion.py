@@ -3,7 +3,8 @@ from __future__ import annotations
 import json
 
 from agents.models import ScriptedModel
-from agents.reflexion import REFLECTION_PROMPT, Reflexion
+from agents.reflexion import Reflexion
+from agents.reflexion.prompts import REFLECTION_PROMPT
 from environments.lineworld import LineWorld
 from evaluation.goals import Goal
 from evaluation.runner import Budgets, run

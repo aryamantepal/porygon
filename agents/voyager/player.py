@@ -20,6 +20,9 @@ Mechanisms, each switchable for ablations:
 - skill_library: off means no retrieval, no `call`, nothing stored.
 - iterative_prompting: off means one attempt per task, with no feedback.
 - self_verification: off means a program that runs without error counts as success.
+- few_shot: `examples` programs from another task are shown in the action-agent
+  prompt after the retrieved skills, as Voyager's original prompt shows example
+  code. They are not stored in the library and cannot be called.
 """
 
 from __future__ import annotations
@@ -32,6 +35,7 @@ from pathlib import Path
 from typing import Any, Generator
 
 from agents.common import first_json_object, render_observation
+from agents.examples import Examples
 from agents.models import ChatModel, Message, ModelCall
 from agents.protocol import Decision, Review, TrialOutcome
 from agents.voyager import prompts
@@ -85,8 +89,10 @@ class Voyager:
         retrieval_k: int = 5,
         library_path: Path | None = None,
         max_calls_per_decision: int = 12,
+        examples: Examples | None = None,
     ) -> None:
         self.model = model
+        self._example_programs = examples.programs_text() if examples else ""
         self.curriculum = curriculum
         self.skill_library = skill_library
         self.iterative_prompting = iterative_prompting
@@ -108,6 +114,7 @@ class Voyager:
             "skill_library": self.skill_library,
             "iterative_prompting": self.iterative_prompting,
             "self_verification": self.self_verification,
+            "few_shot": bool(self._example_programs),
             "thinking": False,
         }
 
@@ -189,6 +196,8 @@ class Voyager:
         retrieved = self.library.retrieve(f"{task.text} {task.context}", self.retrieval_k) if self.skill_library else []
         turn.events.append({"type": "retrieved_skills", "skills": [s.program.name for s in retrieved]})
         programs = "\n\n".join(s.program.source for s in retrieved) or "(none yet)"
+        if self._example_programs:
+            programs += "\n\n" + prompts.EXAMPLE_PROGRAMS.format(programs=self._example_programs)
         system = prompts.ACTION_TEMPLATE.format(
             language=prompts.SKILL_LANGUAGE.replace("<ACTION>", "|".join(keys)),
             programs=programs,

@@ -13,6 +13,11 @@ Keep an intention: what you are working toward over many turns. Change it only f
 Reply with JSON only:
 {{"why": "<one sentence>", "tool": "<tool name>", "args": {{...}}, "intention": "<what you are working toward>", "battle_goal": "defeat" | "catch" | "flee"}}"""
 
+EXAMPLE_REPLIES = """\
+Here are example replies, from a different goal than yours. They show the form and the tools, not the answer to your task.
+
+{replies}"""
+
 TOOLS = {
     "go_to": 'go_to {"place": "<place id>"} or {"position": [x, y]}: walk there; walking onto a door goes through it',
     "talk_to": 'talk_to {"place": "<place id>"}: walk next to someone, face them, and talk',

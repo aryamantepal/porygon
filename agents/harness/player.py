@@ -28,6 +28,7 @@ from pathlib import Path
 from typing import Any
 
 from agents.common import first_json_object, render_observation
+from agents.examples import Examples
 from agents.harness import battle as battle_rules
 from agents.harness import prompts, tools
 from agents.harness.memory import Journal, KnowledgeGraph
@@ -68,8 +69,10 @@ class CrystalHarness:
         intention_ticks: int = 60,
         max_calls_per_decision: int = 8,
         busy_wait_limit: int = 6,
+        examples: Examples | None = None,
     ) -> None:
         self.model = model
+        self._example_replies = examples.tool_calls_text() if examples else ""
         self.knowledge = KnowledgeGraph(backbone, knowledge_path)
         self.summarize_dialogue = summarize_dialogue
         self.stuck_ladder = stuck_ladder
@@ -86,6 +89,7 @@ class CrystalHarness:
             "dialogue_summaries": self.summarize_dialogue,
             "stuck_ladder": self.stuck_ladder,
             "knowledge_graph": True,
+            "few_shot": bool(self._example_replies),
             "thinking": False,
         }
 
@@ -282,8 +286,11 @@ class CrystalHarness:
         names = ["go_to", "talk_to", "press", "note"] if navigable else ["press", "note"]
         tool_text = "\n".join(f"- {prompts.TOOLS[name]}" for name in names).replace("KEYS", ", ".join(a.key for a in legal_actions))
         snapshot, images = render_observation(observation)
+        system = prompts.PLANNER.format(tools=tool_text)
+        if self._example_replies:
+            system += "\n\n" + prompts.EXAMPLE_REPLIES.format(replies=self._example_replies)
         call = self.model.chat(
-            [Message("system", prompts.PLANNER.format(tools=tool_text)), Message("user", self._planner_input(snapshot, state, rung), images)],
+            [Message("system", system), Message("user", self._planner_input(snapshot, state, rung), images)],
             think=RUNGS[rung] == "deep_think",
         )
         turn.calls.append(call)

@@ -9,10 +9,12 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import subprocess
 import time
 from pathlib import Path
 from typing import Any
 
+from agents.examples import Examples
 from agents.models import ChatModel, OllamaChat
 from environments.protocol import Environment, ObservationMode
 from evaluation.goals import Goal
@@ -43,16 +45,27 @@ def make_model(spec: dict[str, Any]) -> ChatModel:
     raise ValueError(f"unknown model provider {spec['provider']!r}")
 
 
+def make_examples(spec: dict[str, Any]) -> Examples | None:
+    """The few-shot file named by the agent config, parsed; no key means zero-shot."""
+    return Examples.from_dict(json.loads(Path(spec["examples"]).read_text())) if spec.get("examples") else None
+
+
 def make_player(spec: dict[str, Any], model: ChatModel):
     name = spec["name"]
+    examples = make_examples(spec)
     if name == "direct":
         from agents.direct import DirectPolicy
 
-        return DirectPolicy(model)
+        return DirectPolicy(model, examples=examples)
     if name == "react":
         from agents.react import ReAct
 
-        return ReAct(model, history_turns=spec.get("history_turns", 10))
+        return ReAct(
+            model,
+            history_turns=spec.get("history_turns", 10),
+            retry_illegal_action=spec.get("retry_illegal_action", False),
+            examples=examples,
+        )
     if name == "reflexion":
         from agents.reflexion import Reflexion
 
@@ -61,6 +74,8 @@ def make_player(spec: dict[str, Any], model: ChatModel):
             history_turns=spec.get("history_turns", 10),
             reflections=spec.get("reflections", True),
             memory_size=spec.get("memory_size", 3),
+            retry_illegal_action=spec.get("retry_illegal_action", False),
+            examples=examples,
         )
     if name == "voyager":
         from agents.voyager import Voyager
@@ -73,6 +88,7 @@ def make_player(spec: dict[str, Any], model: ChatModel):
             self_verification=spec.get("self_verification", True),
             max_attempts=spec.get("max_attempts", 4),
             library_path=Path(spec["library_path"]) if spec.get("library_path") else None,
+            examples=examples,
         )
     if name == "crystal_harness":
         from agents.harness import CrystalHarness
@@ -83,18 +99,31 @@ def make_player(spec: dict[str, Any], model: ChatModel):
             knowledge_path=Path(spec["knowledge_path"]) if spec.get("knowledge_path") else None,
             summarize_dialogue=spec.get("summarize_dialogue", True),
             stuck_ladder=spec.get("stuck_ladder", True),
+            examples=examples,
         )
     raise ValueError(f"unknown agent {name!r}")
 
 
+def code_version() -> dict[str, Any]:
+    """The commit the run's code came from, and whether the tree had uncommitted changes."""
+
+    def git(*args: str) -> str:
+        return subprocess.run(["git", *args], capture_output=True, text=True, check=True).stdout.strip()
+
+    try:
+        return {"commit": git("rev-parse", "HEAD"), "dirty": bool(git("status", "--porcelain", "--untracked-files=no"))}
+    except (OSError, subprocess.CalledProcessError):
+        return {"commit": None, "dirty": None}
+
+
 def file_hashes(spec: dict[str, Any]) -> dict[str, str | None]:
-    """SHA-256 of every file the run starts from (ROM, saved state, agent memory files).
+    """SHA-256 of every file the run starts from (ROM, saved state, examples, agent memory files).
 
     A path alone does not pin a run: a save can be overwritten. None means the
     file did not exist when the run started (a memory file the run will create).
     """
     paths = [spec["environment"].get(key) for key in ("rom", "state")]
-    paths += [spec["agent"].get(key) for key in ("backbone", "knowledge_path", "library_path")]
+    paths += [spec["agent"].get(key) for key in ("backbone", "knowledge_path", "library_path", "examples")]
     hashes = {}
     for path in filter(None, paths):
         file = Path(path)
@@ -122,7 +151,7 @@ def main() -> None:
         goal=goal,
         budgets=Budgets(**spec["budgets"]),
         trials=spec.get("trials", 1),
-        config={"config_file": str(args.config), "files": hashes, "environment": spec["environment"], "model": spec["model"], "agent_config": spec["agent"]},
+        config={"config_file": str(args.config), "code": code_version(), "files": hashes, "environment": spec["environment"], "model": spec["model"], "agent_config": spec["agent"]},
     )
     for result in results:
         print(json.dumps({"trial": result.trial, "success": result.success, "reason": result.reason, "steps": result.steps, "invalid": result.invalid_decisions, "model_calls": result.model_calls}))

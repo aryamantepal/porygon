@@ -67,6 +67,11 @@ You should only respond in the format as described below:
 RESPONSE FORMAT:
 {response_format}"""
 
+EXAMPLE_PROGRAMS = """\
+Here are example programs for a different task. They show the language only. They are not in the skill library, so do not `call` them.
+
+{programs}"""
+
 CRITIC = """\
 You are an assistant that assesses my progress of playing a video game and provides useful guidance.
 

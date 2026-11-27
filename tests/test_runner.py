@@ -187,3 +187,10 @@ def test_run_config_hashes_the_files_it_starts_from(tmp_path):
     state.write_bytes(b"saved")
     spec = {"environment": {"rom": str(tmp_path / "missing.gba"), "state": str(state)}, "agent": {"name": "direct"}}
     assert file_hashes(spec) == {str(tmp_path / "missing.gba"): None, str(state): hashlib.sha256(b"saved").hexdigest()}
+
+
+def test_run_config_records_the_code_version():
+    from experiments.run import code_version
+
+    version = code_version()
+    assert set(version) == {"commit", "dirty"}

@@ -6,14 +6,16 @@ numbered Thought / Action / Observation turns, generation stopped at the next
 for the action alone after the thought.
 
 Differences from the paper, because the setting differs:
-- Zero-shot. The paper's few-shot trajectories are for QA and text games; there
-  are no in-domain game trajectories to show yet.
+- Zero-shot unless `examples` is given. The paper's few-shot trajectories are for
+  QA and text games; ours are a file of worked trajectories in this game's
+  snapshot format, shown in the system prompt before the task.
 - History is the last `history_turns` turns, not the whole trajectory, so long
   games fit in context.
 - In visual mode only the current screen is attached; earlier observations in
   the history carry whatever text the mode allows.
-- The second call also happens when the action is not a legal one, and it
-  names the legal actions. The reference loop only retried a missing action.
+- `retry_illegal_action` (off by default, as in the reference loop, which only
+  retried a missing action): when on, the second call also happens when the
+  action is not a legal one, and it names the legal actions.
 - The model's hidden thinking is off: the Thought line is the reasoning, and it
   is logged verbatim.
 """
@@ -25,16 +27,11 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 
 from agents.common import describe_actions, parse_action, render_observation
+from agents.examples import Examples
 from agents.models import ChatModel, Message
 from agents.protocol import Decision, Review, TrialOutcome
+from agents.react.prompts import EXAMPLES, SYSTEM
 from environments.protocol import Action, Observation
-
-SYSTEM = (
-    "You are playing a video game. Solve the goal by interleaving Thought and Action "
-    "steps. A Thought reasons about the current situation and what to do next. An "
-    "Action is exactly one of the legal actions, and presses that button once. After "
-    "each Action you will see the next Observation."
-)
 
 _ACTION = re.compile(r"^\s*Action\s*\d*\s*:\s*(.*)", re.IGNORECASE | re.MULTILINE)  # a line of its own, not "the best action: ..." mid-thought
 
@@ -49,14 +46,28 @@ class Turn:
 class ReAct:
     name = "react"
 
-    def __init__(self, model: ChatModel, history_turns: int = 10) -> None:
+    def __init__(
+        self,
+        model: ChatModel,
+        history_turns: int = 10,
+        retry_illegal_action: bool = False,
+        examples: Examples | None = None,
+    ) -> None:
         self.model = model
         self.history_turns = history_turns
+        self.retry_illegal_action = retry_illegal_action
+        self._examples = examples.trajectories_text() if examples else ""
         self._goal = ""
         self._turns: list[Turn] = []
 
     def mechanisms(self) -> dict[str, bool]:
-        return {"reasoning": True, "history": True, "thinking": False}
+        return {
+            "reasoning": True,
+            "history": True,
+            "thinking": False,
+            "retry_illegal_action": self.retry_illegal_action,
+            "few_shot": bool(self._examples),
+        }
 
     def start_trial(self, goal: str) -> None:
         self._goal = goal
@@ -77,10 +88,11 @@ class ReAct:
         thought, action_text = _split(call.output)
         action = parse_action(action_text, legal_actions, require_label=False) if action_text is not None else None
 
-        if action is None:
+        if action is None and (action_text is None or self.retry_illegal_action):
             # The reference loop's recovery: keep the thought and ask for the
-            # action on its own. Ours also retries an action that is not legal
-            # ("RUN", "INTERACT with the person"), naming the legal ones.
+            # action on its own. With `retry_illegal_action` it also retries an
+            # action that is not legal ("RUN", "INTERACT with the person"),
+            # naming the legal ones.
             if action_text is None:
                 thought = call.output.strip().split("\n")[0]
                 ask = f"Thought {n}: {thought}\nAction {n}:"
@@ -112,7 +124,7 @@ class ReAct:
         return Review()
 
     def _system(self) -> str:
-        return SYSTEM
+        return f"{SYSTEM}\n\n{EXAMPLES}\n\n{self._examples}" if self._examples else SYSTEM
 
     def _prompt(self, snapshot: str, legal_actions: Sequence[Action]) -> str:
         n = len(self._turns)

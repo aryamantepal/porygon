@@ -82,6 +82,8 @@ Two toy environments, LineWorld and GridWorld, implement the same interface with
 
 An experiment is a JSON config in [`experiments/`](experiments/): environment, agent and its mechanisms, model, goal, budgets, and trial count. Runs go to `runs/`, which is gitignored.
 
+Agents are zero-shot by default. An agent block with `"examples": "<path>"` adds few-shot examples from a JSON file (format in [`agents/examples.py`](agents/examples.py)), and each agent reports `few_shot` in its mechanisms. ReAct and Reflexion also take `"retry_illegal_action": true`, which retries an action that is not legal; off, only a missing action is retried, as in the ReAct paper.
+
 ```sh
 uv run python -m experiments.run experiments/gridworld_react.json
 uv run python -m evaluation.trace runs/<run> --trial 0
