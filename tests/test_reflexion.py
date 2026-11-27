@@ -70,3 +70,16 @@ def test_success_writes_no_reflection():
     player.start_trial(GOAL.text)
     review = player.end_trial(TrialOutcome(True, "goal_met", 9))
     assert review.calls == () and player.memory == []
+
+
+def test_memory_size_zero_keeps_none():
+    player = Reflexion(ScriptedModel(lambda messages: "Plan: x\nAction: LEFT"), memory_size=0)
+    env = LineWorld()
+    from agents.protocol import TrialOutcome
+
+    for _ in range(2):
+        player.start_trial(GOAL.text)
+        player.decide(env.reset(), env.legal_actions())
+        player.end_trial(TrialOutcome(False, "max_steps", 1))
+    player.start_trial(GOAL.text)
+    assert player._in_context == []

@@ -70,7 +70,7 @@ class Reflexion(ReAct):
     def start_trial(self, goal: str) -> None:
         super().start_trial(goal)
         self._trial += 1
-        self._in_context = self.memory[-self.memory_size :] if self.reflections else []
+        self._in_context = _last(self.memory, self.memory_size) if self.reflections else []
 
     def decide(self, observation: Observation, legal_actions: Sequence[Action]) -> Decision:
         decision = super().decide(observation, legal_actions)
@@ -101,7 +101,7 @@ class Reflexion(ReAct):
         return "\n".join(lines)
 
     def _reflection_query(self, outcome: TrialOutcome) -> str:
-        turns = self._turns[-self.reflection_turns :]
+        turns = _last(self._turns, self.reflection_turns)
         first = len(self._turns) - len(turns)
         lines = [REFLECTION_PROMPT, "", "Here is the task:", f"Goal: {self._goal}"]
         if first:
@@ -109,9 +109,15 @@ class Reflexion(ReAct):
         for index, turn in enumerate(turns, start=first + 1):
             lines += [f"Observation {index}: {turn.observation}", f"Thought {index}: {turn.thought}", f"Action {index}: {turn.action}"]
         lines.append(f"STATUS: FAIL ({outcome.reason} after {outcome.steps} steps)")
-        past = self.memory[-self.memory_size :]
+        past = _last(self.memory, self.memory_size)
         if past:
             lines += ["", "Plans from past attempts:"]
             lines += [f"Trial #{index}: {reflection.text}" for index, reflection in enumerate(past)]
         lines += ["", "New plan:"]
         return "\n".join(lines)
+
+
+def _last(items: list, n: int) -> list:
+    """The last n items; xs[-0:] would be all of them, which breaks a 0 ablation."""
+    return items[max(len(items) - n, 0) :]
+
