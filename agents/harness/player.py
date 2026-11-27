@@ -181,20 +181,29 @@ class CrystalHarness:
 
     def _start_battle(self, state, keys, turn: _Turn) -> None:
         battle = state["battle"]
-        allowed, removed = battle_rules.allowed_options(battle, self._battle_goal)
         if not battle.get("options"):
             # messages or animations: nothing to choose, so move them along
             self._start("battle", "press", {"key": keys["confirm"]}, tools.press(keys["confirm"], 1), state)
             return
+        goal = self._battle_goal
+        if goal == "catch" and not any(o.get("kind") == "catch" for o in battle["options"]):
+            # nothing on this menu catches, so the catch rules would only stall the fight
+            turn.events.append({"type": "battle_goal_unavailable", "goal": goal, "using": "defeat"})
+            goal = "defeat"
+        allowed, removed = battle_rules.allowed_options(battle, goal)
         if not allowed:
-            turn.events.append({"type": "battle", "goal": self._battle_goal, "removed": removed, "choice": None})
-            self._start("battle", "press", {"key": keys["confirm"]}, tools.press(keys["confirm"], 1), state)
+            # Confirming here would take whatever the cursor is on, which may be
+            # the option a rule just removed. Under catch, back out instead; otherwise
+            # (every option out of uses) confirming lets the game pick its fallback.
+            key = keys["cancel"] if goal == "catch" else keys["confirm"]
+            turn.events.append({"type": "battle", "goal": goal, "removed": removed, "choice": None, "press": key})
+            self._start("battle", "press", {"key": key}, tools.press(key, 1), state)
             return
         why = "only legal option"
         choice = allowed[0]["id"]
         if len(allowed) > 1:
             call = self.model.chat(
-                [Message("system", prompts.BATTLE), Message("user", battle_rules.choose_prompt(battle, allowed, self._battle_goal, removed))],
+                [Message("system", prompts.BATTLE), Message("user", battle_rules.choose_prompt(battle, allowed, goal, removed))],
                 think=False,
             )
             turn.calls.append(call)
@@ -203,7 +212,7 @@ class CrystalHarness:
                 choice, why = reply["option"], reply.get("why", "")
             else:
                 why = f"reply did not name an allowed option; took {choice}"
-        turn.events.append({"type": "battle", "goal": self._battle_goal, "allowed": [o["id"] for o in allowed], "removed": removed, "choice": choice, "why": why})
+        turn.events.append({"type": "battle", "goal": goal, "allowed": [o["id"] for o in allowed], "removed": removed, "choice": choice, "why": why})
         chosen = next(o for o in allowed if o["id"] == choice)
         given = battle_rules.option_keys(chosen)
         if given:
@@ -334,6 +343,11 @@ class CrystalHarness:
             raise tools.ToolError(f"no place {args['place']!r} on this map")
         position = args.get("position")
         if isinstance(position, list) and len(position) == 2 and all(isinstance(v, int) for v in position):
+            # coordinates of a known place mean that place: a door named by its
+            # tile still needs the walk-into-it handling
+            for place in state.get("places", []):
+                if list(place.get("position", [])) == position:
+                    return tuple(position), place.get("role", "")
             return tuple(position), ""
         raise tools.ToolError('args need "place" or "position": [x, y]')
 
@@ -388,9 +402,3 @@ def _situation(state) -> dict[str, Any]:
     if not state:
         return {}
     return {key: state.get(key) for key in ("context", "map", "position")}
-
-
-    try:
-        return json.loads(text[start : end + 1])
-    except json.JSONDecodeError:
-        return None

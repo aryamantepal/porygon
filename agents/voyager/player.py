@@ -306,12 +306,6 @@ def _sections(text: str) -> tuple[str, str, str | None]:
     return parts.get("explain", ""), parts.get("plan", ""), code.group(1) if code else None
 
 
-    try:
-        return json.loads(text[start : end + 1])
-    except json.JSONDecodeError:
-        return None
-
-
 def _state_only(snapshot: str) -> str:
     lines = [line for line in snapshot.splitlines() if line.startswith("State: ")]
     return lines[0][len("State: ") :] if lines else "(no structured state in this observation mode)"

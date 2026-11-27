@@ -12,6 +12,8 @@ Differences from the paper, because the setting differs:
   games fit in context.
 - In visual mode only the current screen is attached; earlier observations in
   the history carry whatever text the mode allows.
+- The second call also happens when the action is not a legal one, and it
+  names the legal actions. The reference loop only retried a missing action.
 - The model's hidden thinking is off: the Thought line is the reasoning, and it
   is logged verbatim.
 """
@@ -75,15 +77,21 @@ class ReAct:
         thought, action_text = _split(call.output)
         action = parse_action(action_text, legal_actions, require_label=False) if action_text is not None else None
 
-        if action_text is None:
-            # The reference loop's recovery: keep the first line as the thought
-            # and ask for the action on its own.
-            thought = call.output.strip().split("\n")[0]
+        if action is None:
+            # The reference loop's recovery: keep the thought and ask for the
+            # action on its own. Ours also retries an action that is not legal
+            # ("RUN", "INTERACT with the person"), naming the legal ones.
+            if action_text is None:
+                thought = call.output.strip().split("\n")[0]
+                ask = f"Thought {n}: {thought}\nAction {n}:"
+            else:
+                ask = (
+                    f"Thought {n}: {thought}\n"
+                    f"({action_text!r} is not a legal action. Use exactly one of: {describe_actions(legal_actions)}.)\n"
+                    f"Action {n}:"
+                )
             retry = self.model.chat(
-                [
-                    Message("system", self._system()),
-                    Message("user", prompt + f"Thought {n}: {thought}\nAction {n}:", images),
-                ],
+                [Message("system", self._system()), Message("user", prompt + ask, images)],
                 think=False,
                 stop=["\n"],
             )

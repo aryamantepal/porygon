@@ -176,3 +176,14 @@ def test_agents_and_evaluation_import_no_game():
                     names = [node.module or ""]
                 for name in names:
                     assert not name.startswith(forbidden), f"{path} imports {name}"
+
+
+def test_run_config_hashes_the_files_it_starts_from(tmp_path):
+    import hashlib
+
+    from experiments.run import file_hashes
+
+    state = tmp_path / "start.state"
+    state.write_bytes(b"saved")
+    spec = {"environment": {"rom": str(tmp_path / "missing.gba"), "state": str(state)}, "agent": {"name": "direct"}}
+    assert file_hashes(spec) == {str(tmp_path / "missing.gba"): None, str(state): hashlib.sha256(b"saved").hexdigest()}

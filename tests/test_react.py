@@ -60,7 +60,7 @@ def test_missing_action_triggers_one_action_only_call():
 
 
 def test_invalid_action_is_recorded_in_history():
-    replies = iter(["Jump!\nAction: JUMP", "Go.\nAction: RIGHT"])
+    replies = iter(["Jump!\nAction: JUMP", "JUMP", "Go.\nAction: RIGHT"])
     model = ScriptedModel(lambda messages: next(replies))
     player = ReAct(model)
     env = LineWorld()
@@ -76,3 +76,15 @@ def test_action_label_must_start_a_line():
 
     thought, action = _split("Thought 1: the best action: head for the stairs.\nAction 1: DOWN")
     assert action == "DOWN" and "head for the stairs" in thought
+
+
+def test_illegal_action_gets_one_retry_naming_the_legal_ones():
+    replies = iter(["Run away.\nAction 1: RUN", "RIGHT"])
+    model = ScriptedModel(lambda messages: next(replies))
+    player = ReAct(model)
+    env = LineWorld()
+    player.start_trial(GOAL.text)
+    decision = player.decide(env.reset(), env.legal_actions())
+    assert decision.action.key == "RIGHT" and decision.trace["action_retry"] is True
+    retry_prompt = model.calls[1].messages[1]["content"]
+    assert "'RUN' is not a legal action" in retry_prompt and retry_prompt.endswith("Action 1:")

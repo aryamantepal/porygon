@@ -1,6 +1,6 @@
 # Porygon
 
-Porygon is an open-source framework for developing and comparing autonomous players on long-horizon games. The game is Pokémon FireRed. One player is an open-weights model that sees only the current snapshot and chooses an action. The others are [ReAct](https://arxiv.org/abs/2210.03629), [Reflexion](https://arxiv.org/abs/2303.11366), and [Voyager](https://voyager.minedojo.org/).
+Porygon is an open-source framework for developing and comparing autonomous players on long-horizon games. The game is Pokémon FireRed. One player is an open-weights model that sees only the current snapshot and chooses an action. The others are [ReAct](https://arxiv.org/abs/2210.03629), [Reflexion](https://arxiv.org/abs/2303.11366), [Voyager](https://voyager.minedojo.org/), and a game-agnostic rebuild of the harness from [Teaching a Local LLM to Play Pokémon Crystal](https://projects.playtesting.dev/posts/pokemon-crystal/).
 
 The question is how those architectures change an agent's ability to explore, plan, remember, recover from mistakes, and carry out long action sequences — and which of those mechanisms still help when the game changes. The open-weights player is the floor: the same model, the same snapshot, and a decision with no carried context.
 
@@ -15,6 +15,7 @@ flowchart LR
     React[ReAct]
     Reflexion[Reflexion]
     Voyager[Voyager]
+    Harness[Crystal harness]
   end
 
   subgraph eval [Evaluation]
@@ -23,6 +24,7 @@ flowchart LR
 
   subgraph envs [Adapter]
     Pokemon[Pokémon FireRed]
+    Toys[LineWorld, GridWorld]
   end
 
   Runner --> agents
@@ -54,7 +56,7 @@ Players are interchangeable. They receive observations and return actions. They 
 
 **ReAct.** Reason about the current situation, act, observe, and repeat. This is the agent baseline the direct policy is compared with.
 
-**Reflexion.** ReAct plus periodic review of failures. The review is stored as text that later decisions can read.
+**Reflexion.** ReAct plus a verbal review after each failed trial. The review is stored as text that later decisions can read.
 
 **Voyager.** The lifelong-learning loop from Voyager, retargeted at this environment:
 
@@ -62,7 +64,9 @@ Players are interchangeable. They receive observations and return actions. They 
 - A **skill library** stores behaviors, retrieves them in similar situations, and composes them.
 - **Iterative prompting** revises a skill using environment feedback, execution errors, and self-verification against the game.
 
-Voyager's original action space is code, because Minecraft skills are open-ended programs. Pokémon's actions are a closed controller and menu language. The curriculum, library, and feedback loop are the part being adapted. The skill representation is whatever this game can actually execute and reuse.
+Voyager's original action space is code, because Minecraft skills are open-ended programs. Pokémon's actions are a closed controller and menu language. The curriculum, library, and feedback loop are the part being adapted. A skill here is a short program over the legal actions (presses, fixed repeats, `until` loops on snapshot fields, and calls to other skills), and each press is one counted environment step.
+
+**Crystal harness.** The harness from the Crystal write-up, rebuilt so it never names the game. It reads a *role snapshot* ([`environments/roles.py`](environments/roles.py)): doors, people, items, and milestones by role, plus a collision grid, the dialogue text, and the battle options. Each decision is routed by what the game is waiting for. A battle specialist removes options that break its rules (no move with no uses left, no knockout of something being caught) and the model picks from what is left. Dialogue is read into a journal as leads. The planner names a tool (`go_to`, `talk_to`, `press`, `note`) and code walks the path press by press. A stuck ladder escalates when the same situation repeats: show past failures, nudge, think more, then ask for help. A knowledge graph keeps a fixed backbone and lets the agent attach notes. The write-up publishes no prompts or thresholds, so those are ours. Its operator console is not built.
 
 ### Evaluation
 
@@ -70,7 +74,20 @@ A result is a set of repeated trials under one declared configuration: the same 
 
 The runner records task success, game progression, environment steps, token usage and cost, recovery from mistakes, skill reuse on later tasks, and consistency across trials. Ablations turn one mechanism off at a time — the curriculum, the skill library, verbal reflections, or self-verification — and share the runner.
 
-Trajectories, prompts, and model calls are saved with the run.
+Trajectories, prompts, and model calls are saved with the run, along with a SHA-256 of every file the run starts from (ROM, saved state, agent memory files).
+
+Two toy environments, LineWorld and GridWorld, implement the same interface with no emulator. Every architecture runs on them under the same budgets, so a player can be checked before it touches the game.
+
+## Running
+
+An experiment is a JSON config in [`experiments/`](experiments/): environment, agent and its mechanisms, model, goal, budgets, and trial count. Runs go to `runs/`, which is gitignored.
+
+```sh
+uv run python -m experiments.run experiments/gridworld_react.json
+uv run python -m evaluation.trace runs/<run> --trial 0
+```
+
+The trace viewer prints each press beside the agent's reasoning and the progress that followed, so a claim like "I reached the stairs" sits next to the position that confirms or contradicts it.
 
 ## Setup
 

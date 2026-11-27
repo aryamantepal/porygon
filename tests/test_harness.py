@@ -225,6 +225,44 @@ def test_battle_without_options_just_confirms():
     assert harness.decide(observation, [Press("A"), Press("B")]).action.key == "A" and model.calls == []
 
 
+def _battle_harness(battle_goal, reply="{}"):
+    from environments.protocol import Press
+
+    model = ScriptedModel(lambda messages: reply)
+    harness = CrystalHarness(model)
+    harness.start_trial("catch it")
+    harness._battle_goal = battle_goal
+    return harness, model, [Press(k) for k in ("UP", "DOWN", "LEFT", "RIGHT", "A", "B")]
+
+
+def test_catch_backs_out_when_every_option_is_ruled_out():
+    from environments.protocol import Observation
+
+    battle = {
+        "options": [
+            {"id": "tackle", "kind": "attack", "power": 35, "uses_left": 35},
+            {"id": "ball", "kind": "catch", "uses_left": 0},
+        ],
+        "opponent": {"hp": 5, "max_hp": 18, "catchable": True},
+    }
+    harness, model, legal = _battle_harness("catch")
+    decision = harness.decide(Observation(ObservationMode.STRUCTURED, 0, None, {"context": "battle", "battle": battle}), legal)
+    assert decision.action.key == "B" and model.calls == []
+
+
+def test_catch_without_a_catch_option_fights_instead():
+    from environments.protocol import Observation
+
+    battle = {
+        "options": [{"id": "tackle", "kind": "attack", "power": 35, "uses_left": 35, "keys": ["A", "A"]}],
+        "opponent": {"hp": 5, "max_hp": 18, "catchable": True},
+    }
+    harness, model, legal = _battle_harness("catch")
+    decision = harness.decide(Observation(ObservationMode.STRUCTURED, 0, None, {"context": "battle", "battle": battle}), legal)
+    assert decision.action.key == "A"
+    assert [e["type"] for e in decision.trace["events"]][:2] == ["battle_goal_unavailable", "battle"]
+
+
 def test_malformed_args_are_failures_not_crashes(tmp_path):
     bad = iter([
         {"why": "x", "tool": "go_to", "args": "door_to_town"},
@@ -236,3 +274,12 @@ def test_malformed_args_are_failures_not_crashes(tmp_path):
     records = records_of(tmp_path / "run")
     assert events(records, "plan")[0]["error"].startswith("reply was not")
     assert "whole number" in events(records, "tool_end")[0]["result"]
+
+
+def test_coordinates_of_a_door_are_treated_as_the_door():
+    # FireRed stairs only work when you keep walking into them; a planner that
+    # gives the stairs' tile instead of their id must still get that handling
+    harness = CrystalHarness(ScriptedModel(lambda messages: "{}"))
+    state = {"places": [{"id": "door_0", "role": "door", "position": [10, 2]}]}
+    assert harness._target({"position": [10, 2]}, state) == ((10, 2), "door")
+    assert harness._target({"position": [3, 3]}, state) == ((3, 3), "")

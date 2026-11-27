@@ -7,6 +7,7 @@ clients together. A run writes to runs/ (gitignored).
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import time
 from pathlib import Path
@@ -86,12 +87,28 @@ def make_player(spec: dict[str, Any], model: ChatModel):
     raise ValueError(f"unknown agent {name!r}")
 
 
+def file_hashes(spec: dict[str, Any]) -> dict[str, str | None]:
+    """SHA-256 of every file the run starts from (ROM, saved state, agent memory files).
+
+    A path alone does not pin a run: a save can be overwritten. None means the
+    file did not exist when the run started (a memory file the run will create).
+    """
+    paths = [spec["environment"].get(key) for key in ("rom", "state")]
+    paths += [spec["agent"].get(key) for key in ("backbone", "knowledge_path", "library_path")]
+    hashes = {}
+    for path in filter(None, paths):
+        file = Path(path)
+        hashes[path] = hashlib.sha256(file.read_bytes()).hexdigest() if file.is_file() else None
+    return hashes
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("config", type=Path)
     parser.add_argument("--run-dir", type=Path)
     args = parser.parse_args()
     spec = json.loads(args.config.read_text())
+    hashes = file_hashes(spec)  # before anything can write to those files
 
     env = make_environment(spec["environment"])
     model = make_model(spec["model"])
@@ -105,7 +122,7 @@ def main() -> None:
         goal=goal,
         budgets=Budgets(**spec["budgets"]),
         trials=spec.get("trials", 1),
-        config={"config_file": str(args.config), "environment": spec["environment"], "model": spec["model"], "agent_config": spec["agent"]},
+        config={"config_file": str(args.config), "files": hashes, "environment": spec["environment"], "model": spec["model"], "agent_config": spec["agent"]},
     )
     for result in results:
         print(json.dumps({"trial": result.trial, "success": result.success, "reason": result.reason, "steps": result.steps, "invalid": result.invalid_decisions, "model_calls": result.model_calls}))
