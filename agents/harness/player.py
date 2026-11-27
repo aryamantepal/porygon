@@ -27,7 +27,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from agents.common import render_observation
+from agents.common import first_json_object, render_observation
 from agents.harness import battle as battle_rules
 from agents.harness import prompts, tools
 from agents.harness.memory import Journal, KnowledgeGraph
@@ -96,6 +96,7 @@ class CrystalHarness:
         self._running: Running | None = None
         self._intention = ""
         self._intention_age = 0
+        self._bad_reply: str | None = None
         self._battle_goal = "defeat"
         self._tick = 0
         self._summarized: set[str] = set()
@@ -197,7 +198,7 @@ class CrystalHarness:
                 think=False,
             )
             turn.calls.append(call)
-            reply = _json(call.output) or {}
+            reply = first_json_object(call.output) or {}
             if reply.get("option") in {o["id"] for o in allowed}:
                 choice, why = reply["option"], reply.get("why", "")
             else:
@@ -251,7 +252,7 @@ class CrystalHarness:
             think=False,
         )
         turn.calls.append(call)
-        reply = _json(call.output) or {}
+        reply = first_json_object(call.output) or {}
         index = reply.get("option") if isinstance(reply.get("option"), int) and 0 <= reply["option"] < len(options) else 0
         turn.events.append({"type": "menu", "prompt": menu.get("prompt", ""), "choice": index, "why": reply.get("why", "reply was not usable; took the first option")})
         self._start("menu", "choose", {"option": index}, tools.pick_option(menu.get("cursor", 0), index, keys), state)
@@ -276,10 +277,12 @@ class CrystalHarness:
             think=RUNGS[rung] == "deep_think",
         )
         turn.calls.append(call)
-        reply = _json(call.output)
+        reply = first_json_object(call.output)
         if not isinstance(reply, dict) or reply.get("tool") not in names:
             turn.events.append({"type": "plan", "rung": RUNGS[rung], "error": "reply was not a JSON tool call from the list"})
+            self._bad_reply = call.output
             return
+        self._bad_reply = None
         tool, args, why = reply["tool"], reply.get("args") or {}, reply.get("why", "")
         self._update_intention(reply, why, turn)
         if reply.get("battle_goal") in ("defeat", "catch", "flee"):
@@ -354,6 +357,8 @@ class CrystalHarness:
         knowledge = self.knowledge.relevant(f"{self._goal} {self._intention} {json.dumps(_situation(state))}")
         if any(knowledge.values()):
             lines.append("What you know: " + json.dumps(knowledge))
+        if self._bad_reply is not None:
+            lines.append(prompts.BAD_REPLY.format(reply=self._bad_reply.strip()[:300]))
         if rung >= 1:
             failures = self._ladder.failed_here(state)
             if failures:
@@ -381,10 +386,6 @@ def _situation(state) -> dict[str, Any]:
     return {key: state.get(key) for key in ("context", "map", "position")}
 
 
-def _json(text: str) -> Any:
-    start, end = text.find("{"), text.rfind("}")
-    if start < 0 or end <= start:
-        return None
     try:
         return json.loads(text[start : end + 1])
     except json.JSONDecodeError:

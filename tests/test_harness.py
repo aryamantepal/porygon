@@ -28,8 +28,8 @@ def state_of(messages):
     return {}
 
 
-def planner_model(plan):
-    """Planner replies come from `plan(state)`; dialogue and battle get fixed replies."""
+def planner_model(plan, text=json.dumps):
+    """Planner replies are `text(plan(state))`; dialogue and battle get fixed replies."""
 
     def reply(messages):
         first = messages[0].content
@@ -37,7 +37,7 @@ def planner_model(plan):
             return "- The milestone is in the southeast corner of town."
         if first.startswith("You choose the next move"):
             return '{"why": "weaken it first", "option": "tackle"}'
-        return json.dumps(plan(state_of(messages)))
+        return text(plan(state_of(messages)))
 
     return ScriptedModel(reply)
 
@@ -118,6 +118,24 @@ def test_catches_without_knocking_out(tmp_path):
     assert results[0].success
     choices = [e["choice"] for e in events(records_of(tmp_path / "run"), "battle")]
     assert choices == ["tackle", "tackle", "ball"]
+
+
+def test_planner_reads_the_first_object_of_a_run_on_reply(tmp_path):
+    # qwen2.5:7b closes the object early and keeps writing; that used to cost every call
+    def run_on(plan):
+        return json.dumps(plan).replace(', "intention"', '}, "intention"', 1)
+
+    harness = CrystalHarness(planner_model(to_milestone, run_on))
+    results = run(run_dir=tmp_path / "run", env=GridWorld(), player=harness, goal=MILESTONE, budgets=Budgets(max_steps=60))
+    assert results[0].success
+
+
+def test_an_unusable_reply_is_shown_back_to_the_planner(tmp_path):
+    replies = iter(["go to the door"])
+    model = planner_model(to_milestone, lambda plan: next(replies, json.dumps(plan)))
+    run(run_dir=tmp_path / "run", env=GridWorld(), player=CrystalHarness(model), goal=MILESTONE, budgets=Budgets(max_steps=60))
+    assert "could not be used: go to the door" in model.calls[1].messages[1]["content"]
+    assert "could not be used" not in model.calls[2].messages[1]["content"]
 
 
 def test_stuck_ladder_climbs_to_deep_think_and_help(tmp_path):

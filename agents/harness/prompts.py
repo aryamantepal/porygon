@@ -34,3 +34,4 @@ Reply with JSON only: {{"why": "<one sentence>", "option": <option number, start
 BATTLE = "You choose the next move in a video game battle. The harness has already removed options that break its rules."
 
 NUDGE = "You are going in circles: you have been in this exact situation {count} times. Do something different from what failed before."
+BAD_REPLY = "Your last reply could not be used: {reply}\nReply with exactly one JSON object, with \"tool\" and \"args\" inside it, and nothing after it."

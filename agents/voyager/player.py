@@ -31,7 +31,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Generator
 
-from agents.common import render_observation
+from agents.common import first_json_object, render_observation
 from agents.models import ChatModel, Message, ModelCall
 from agents.protocol import Decision, Review, TrialOutcome
 from agents.voyager import prompts
@@ -254,7 +254,7 @@ class Voyager:
         )
         call = self.model.chat([Message("system", prompts.CRITIC), Message("user", user, images)], think=False)
         turn.calls.append(call)
-        verdict = _json_object(call.output)
+        verdict = first_json_object(call.output)
         if not isinstance(verdict, dict) or not isinstance(verdict.get("success"), bool):
             turn.events.append({"type": "critic", "success": False, "error": "reply was not the requested JSON"})
             return False, "The critic's reply could not be parsed."
@@ -306,10 +306,6 @@ def _sections(text: str) -> tuple[str, str, str | None]:
     return parts.get("explain", ""), parts.get("plan", ""), code.group(1) if code else None
 
 
-def _json_object(text: str) -> Any:
-    start, end = text.find("{"), text.rfind("}")
-    if start < 0 or end <= start:
-        return None
     try:
         return json.loads(text[start : end + 1])
     except json.JSONDecodeError:
