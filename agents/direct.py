@@ -10,8 +10,8 @@ from __future__ import annotations
 from collections.abc import Sequence
 
 from agents.common import describe_actions, parse_action, render_observation
-from agents.models import ChatModel, Message, ModelCall
-from agents.protocol import Decision, TrialOutcome
+from agents.models import ChatModel, Message
+from agents.protocol import Decision, Review, TrialOutcome
 from environments.protocol import Action, Observation
 
 SYSTEM = (
@@ -44,5 +44,5 @@ class DirectPolicy:
         action = parse_action(call.output, legal_actions, require_label=False)
         return Decision(action=action, trace=None, calls=(call,))
 
-    def end_trial(self, outcome: TrialOutcome) -> Sequence[ModelCall]:
-        return ()
+    def end_trial(self, outcome: TrialOutcome) -> Review:
+        return Review()

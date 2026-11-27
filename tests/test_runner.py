@@ -12,7 +12,7 @@ import pytest
 
 from agents.common import parse_action, render_observation
 from agents.models import Message, OllamaChat, ScriptedModel
-from agents.protocol import Decision, TrialOutcome
+from agents.protocol import Decision, Review, TrialOutcome
 from environments.lineworld import LineWorld, LineWorldConfig
 from environments.protocol import Environment, ObservationMode, Press
 from evaluation.goals import Goal
@@ -43,7 +43,7 @@ class Always:
 
     def end_trial(self, outcome):
         self.outcomes.append(outcome)
-        return []
+        return Review()
 
 
 def test_lineworld_implements_protocol():
@@ -81,7 +81,8 @@ def test_run_log_replays_on_its_own(tmp_path):
     for trial in ("000", "001"):
         records = [json.loads(line) for line in (run_dir / "trials" / trial / "steps.jsonl").read_text().splitlines()]
         assert records[0]["kind"] == "reset"
-        assert records[-1]["goal_met"] is True
+        assert records[-2]["goal_met"] is True
+        assert records[-1]["kind"] == "trial_end" and records[-1]["success"] is True
         for record in records:
             if "observation" in record:
                 assert (run_dir / "trials" / trial / record["observation"]["frame"]).read_bytes().startswith(b"\x89PNG")

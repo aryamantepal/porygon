@@ -39,6 +39,14 @@ class TrialOutcome:
     steps: int
 
 
+@dataclass(frozen=True)
+class Review:
+    """What a player did after a trial ended (Reflexion writes a reflection here)."""
+
+    trace: Mapping[str, Any] | None = None
+    calls: Sequence[ModelCall] = field(default_factory=tuple)
+
+
 class Player(Protocol):
     name: str
 
@@ -50,6 +58,4 @@ class Player(Protocol):
 
     def decide(self, observation: Observation, legal_actions: Sequence[Action]) -> Decision: ...
 
-    def end_trial(self, outcome: TrialOutcome) -> Sequence[ModelCall]:
-        """Called after each trial. Returns any model calls made here (Reflexion)."""
-        ...
+    def end_trial(self, outcome: TrialOutcome) -> Review: ...

@@ -48,6 +48,15 @@ def make_player(spec: dict[str, Any], model: ChatModel):
         from agents.react import ReAct
 
         return ReAct(model, history_turns=spec.get("history_turns", 10))
+    if name == "reflexion":
+        from agents.reflexion import Reflexion
+
+        return Reflexion(
+            model,
+            history_turns=spec.get("history_turns", 10),
+            reflections=spec.get("reflections", True),
+            memory_size=spec.get("memory_size", 3),
+        )
     raise ValueError(f"unknown agent {name!r}")
 
 
