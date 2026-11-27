@@ -253,7 +253,8 @@ class CrystalHarness:
         )
         turn.calls.append(call)
         reply = first_json_object(call.output) or {}
-        index = reply.get("option") if isinstance(reply.get("option"), int) and 0 <= reply["option"] < len(options) else 0
+        option = reply.get("option")
+        index = option if isinstance(option, int) and not isinstance(option, bool) and 0 <= option < len(options) else 0
         turn.events.append({"type": "menu", "prompt": menu.get("prompt", ""), "choice": index, "why": reply.get("why", "reply was not usable; took the first option")})
         self._start("menu", "choose", {"option": index}, tools.pick_option(menu.get("cursor", 0), index, keys), state)
 
@@ -278,7 +279,7 @@ class CrystalHarness:
         )
         turn.calls.append(call)
         reply = first_json_object(call.output)
-        if not isinstance(reply, dict) or reply.get("tool") not in names:
+        if not isinstance(reply, dict) or reply.get("tool") not in names or not isinstance(reply.get("args") or {}, dict):
             turn.events.append({"type": "plan", "rung": RUNGS[rung], "error": "reply was not a JSON tool call from the list"})
             self._bad_reply = call.output
             return
@@ -316,7 +317,10 @@ class CrystalHarness:
             key = str(args.get("key", "")).upper()
             if key not in {a.key for a in legal_actions}:
                 raise tools.ToolError(f"{key!r} is not a legal action")
-            return tools.press(key, max(1, min(int(args.get("times", 1)), 20)))
+            times = args.get("times", 1)
+            if isinstance(times, bool) or not isinstance(times, int):
+                raise tools.ToolError(f'"times" must be a whole number, not {times!r}')
+            return tools.press(key, max(1, min(times, 20)))
         target, role = self._target(args, state)
         if tool == "go_to":
             return tools.go_to(observation, target, keys, door=role == "door")

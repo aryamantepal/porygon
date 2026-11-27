@@ -223,3 +223,16 @@ def test_battle_without_options_just_confirms():
     harness.start_trial("win")
     observation = Observation(ObservationMode.STRUCTURED, 0, None, {"context": "battle", "battle": {"moves": [], "options": []}})
     assert harness.decide(observation, [Press("A"), Press("B")]).action.key == "A" and model.calls == []
+
+
+def test_malformed_args_are_failures_not_crashes(tmp_path):
+    bad = iter([
+        {"why": "x", "tool": "go_to", "args": "door_to_town"},
+        {"why": "x", "tool": "press", "args": {"key": "DOWN", "times": "twice"}},
+    ])
+    model = planner_model(lambda state: next(bad, to_milestone(state)))
+    results = run(run_dir=tmp_path / "run", env=GridWorld(), player=CrystalHarness(model), goal=MILESTONE, budgets=Budgets(max_steps=60))
+    assert results[0].success
+    records = records_of(tmp_path / "run")
+    assert events(records, "plan")[0]["error"].startswith("reply was not")
+    assert "whole number" in events(records, "tool_end")[0]["result"]

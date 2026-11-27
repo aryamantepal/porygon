@@ -34,7 +34,7 @@ SYSTEM = (
     "each Action you will see the next Observation."
 )
 
-_ACTION = re.compile(r"Action\s*\d*\s*:\s*(.*)", re.IGNORECASE)
+_ACTION = re.compile(r"^\s*Action\s*\d*\s*:\s*(.*)", re.IGNORECASE | re.MULTILINE)  # a line of its own, not "the best action: ..." mid-thought
 
 
 @dataclass
