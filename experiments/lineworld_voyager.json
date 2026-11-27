@@ -1,0 +1,31 @@
+{
+  "environment": {
+    "name": "lineworld",
+    "mode": "structured"
+  },
+  "agent": {
+    "name": "voyager",
+    "curriculum": true,
+    "skill_library": true,
+    "iterative_prompting": true,
+    "self_verification": true,
+    "max_attempts": 4
+  },
+  "model": {
+    "provider": "ollama",
+    "id": "qwen3.8:27b-mlx",
+    "temperature": 0,
+    "max_tokens": 768
+  },
+  "goal": {
+    "task_id": "lineworld-lamp",
+    "text": "Light the lamp at the far right end of the corridor.",
+    "success": {
+      "lamp": true
+    }
+  },
+  "budgets": {
+    "max_steps": 30
+  },
+  "trials": 1
+}

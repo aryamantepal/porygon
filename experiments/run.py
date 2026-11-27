@@ -57,6 +57,18 @@ def make_player(spec: dict[str, Any], model: ChatModel):
             reflections=spec.get("reflections", True),
             memory_size=spec.get("memory_size", 3),
         )
+    if name == "voyager":
+        from agents.voyager import Voyager
+
+        return Voyager(
+            model,
+            curriculum=spec.get("curriculum", True),
+            skill_library=spec.get("skill_library", True),
+            iterative_prompting=spec.get("iterative_prompting", True),
+            self_verification=spec.get("self_verification", True),
+            max_attempts=spec.get("max_attempts", 4),
+            library_path=Path(spec["library_path"]) if spec.get("library_path") else None,
+        )
     raise ValueError(f"unknown agent {name!r}")
 
 
