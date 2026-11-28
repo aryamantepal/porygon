@@ -67,6 +67,11 @@ def main() -> None:
     path = args.run_dir / "trials" / f"{args.trial:03d}" / "steps.jsonl"
     records = [json.loads(line) for line in path.read_text().splitlines()]
     print("\n".join(describe(records, args.width)))
+    outcome = path.parent / "outcome.json"
+    if outcome.exists():
+        o = json.loads(outcome.read_text())
+        tokens = o["prompt_tokens"] + o["completion_tokens"]
+        print(f"cost    {o['steps']} presses, {o.get('frames', '?')} frames, {o['model_calls']} model calls, {tokens} tokens, {o['wall_seconds']:.0f}s ({o['reason']})")
 
 
 if __name__ == "__main__":

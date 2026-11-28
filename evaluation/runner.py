@@ -14,6 +14,7 @@ Success is decided from `get_progress()`, never from the model's words.
 from __future__ import annotations
 
 import json
+import statistics
 import time
 from collections.abc import Mapping, Sequence
 from dataclasses import asdict, dataclass, field
@@ -51,6 +52,7 @@ class TrialResult:
     prompt_tokens: int = 0
     completion_tokens: int = 0
     wall_seconds: float = 0.0
+    frames: int = 0  # emulator frames the steps advanced
     final_progress: Mapping[str, Any] = field(default_factory=dict)
 
 
@@ -91,6 +93,7 @@ def run(
         run_dir / "summary.json",
         {
             "successes": sum(r.success for r in results),
+            "to_goal": _to_goal(results),
             "trials": len(results),
             "results": [asdict(r) for r in results],
         },
@@ -137,6 +140,7 @@ def _run_trial(
                 continue
             step = env.step(decision.action)
             result.steps += 1
+            result.frames += step.frames_advanced
             observation = step.observation
             progress = env.get_progress()
             record.update(
@@ -214,6 +218,22 @@ def _decision(decision: Decision) -> dict[str, Any]:
         "action": asdict(decision.action) if decision.action is not None else None,
         "trace": dict(decision.trace) if decision.trace is not None else None,
         "calls": [asdict(call) for call in decision.calls],
+    }
+
+
+def _to_goal(results: Sequence[TrialResult]) -> dict[str, float | None]:
+    """Median cost of reaching the goal, over successful trials only, so a fast failure never looks efficient."""
+    won = [r for r in results if r.success]
+
+    def median(values: list[int]) -> float | None:
+        return statistics.median(values) if values else None
+
+    return {
+        "presses": median([r.steps for r in won]),
+        "frames": median([r.frames for r in won]),
+        "model_calls": median([r.model_calls for r in won]),
+        "tokens": median([r.prompt_tokens + r.completion_tokens for r in won]),
+        "wall_seconds": median([r.wall_seconds for r in won]),
     }
 
 

@@ -206,3 +206,13 @@ def test_results_report_efficiency_over_successful_trials_only(tmp_path):
     assert won["frames_to_goal"] > 0
     assert (lost["successes"], lost["presses_to_goal"]) == (0, None)
     assert "| won | 2/2 | 9 |" in table([won, lost])
+
+
+def test_summary_reports_cost_to_goal_over_successful_trials(tmp_path):
+    run(run_dir=tmp_path / "won", env=LineWorld(), player=Always("RIGHT"), goal=REACH_END, budgets=Budgets(max_steps=20), trials=2)
+    summary = json.loads((tmp_path / "won" / "summary.json").read_text())
+    assert summary["to_goal"]["presses"] == 9 and summary["to_goal"]["frames"] > 0
+    outcome = json.loads((tmp_path / "won" / "trials/000/outcome.json").read_text())
+    assert outcome["frames"] == summary["to_goal"]["frames"]
+    run(run_dir=tmp_path / "lost", env=LineWorld(), player=Always("LEFT"), goal=REACH_END, budgets=Budgets(max_steps=3))
+    assert json.loads((tmp_path / "lost" / "summary.json").read_text())["to_goal"]["presses"] is None
