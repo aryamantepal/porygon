@@ -1,0 +1,199 @@
+{
+  "nodes": {
+    "goal": {
+      "role": "goal",
+      "about": "find and reach a milestone"
+    },
+    "house": {
+      "role": "place",
+      "about": "where the player lives"
+    },
+    "pebble_town": {
+      "role": "place",
+      "about": "the town outside the house"
+    },
+    "tall_grass": {
+      "role": "place",
+      "about": "a wide patch of tall grass in the town"
+    },
+    "person": {
+      "role": "person",
+      "about": "a companion living in the house"
+    },
+    "creature": {
+      "role": "creature",
+      "about": "a creature in the tall grass"
+    },
+    "milestone": {
+      "role": "item",
+      "about": "a spot that records progress"
+    }
+  },
+  "edges": [
+    [
+      "house",
+      "contains",
+      "person"
+    ],
+    [
+      "house",
+      "contains",
+      "milestone"
+    ],
+    [
+      "pebble_town",
+      "contains",
+      "tall_grass"
+    ],
+    [
+      "person",
+      "lives_in",
+      "house"
+    ],
+    [
+      "tall_grass",
+      "contains",
+      "creature"
+    ],
+    [
+      "house",
+      "leads_to",
+      "pebble_town"
+    ],
+    [
+      "house",
+      "requires",
+      "person"
+    ],
+    [
+      "pebble_town",
+      "requires",
+      "person"
+    ],
+    [
+      "tall_grass",
+      "requires",
+      "pebble_town"
+    ],
+    [
+      "tall_grass",
+      "requires",
+      "creature"
+    ],
+    [
+      "milestone",
+      "requires",
+      "pebble_town"
+    ]
+  ],
+  "recipes": {
+    "controls": "UP, DOWN, LEFT, RIGHT: walk one step in that direction, or turn to face it\nA: talk to the person you are facing, or confirm a choice in a menu or fight\nB: cancel, or close a message",
+    "when_stuck": "Talk to the person in the house, look at what a door leads to, and try the doors you have not used yet",
+    "talk_to_person_in_house": "Approach the person and press A to talk or confirm a choice in a menu or fight",
+    "fight_a_creature": "Weaken the creature with weak attacks first, then throw a ball to catch it. Optionally, use a strong attack to knock it out"
+  },
+  "source": {
+    "method": "SPRING (arXiv:2305.15486): questions in dependency order, then the backbone",
+    "brief": "experiments/briefs/gridworld.txt",
+    "brief_sha256": "32cde59b0c8752bafefa4375dbc12f03481d7d48892480a66c695000681eed83",
+    "model": {
+      "id": "qwen2.5:7b-instruct",
+      "spec": {
+        "provider": "ollama",
+        "id": "qwen2.5:7b-instruct",
+        "temperature": 0.7,
+        "max_tokens": 768
+      }
+    },
+    "questions": [
+      {
+        "id": "goal",
+        "question": "What is the goal of the game? Answer in one or two sentences.",
+        "depends_on": [],
+        "answer": "The goal is to find a milestone and reach it."
+      },
+      {
+        "id": "controls",
+        "question": "What does each control (button or key) do? List each one with its effect, as the brief states it.",
+        "depends_on": [],
+        "answer": "UP, DOWN, LEFT, RIGHT: walk one step in that direction, or turn to face it.\nA: talk to the person you are facing, or confirm a choice in a menu or fight.\nB: cancel, or close a message."
+      },
+      {
+        "id": "places",
+        "question": "Which places or areas does the game have, and how are they connected to each other?",
+        "depends_on": [
+          "goal"
+        ],
+        "answer": "The game has two main areas: a house where the player lives, and Pebble Town outside, which has a wide patch of tall grass. The house has doors that connect to the town."
+      },
+      {
+        "id": "roles",
+        "question": "Which kinds of people, items, creatures, and milestones does the game have, and in which place does each belong? Name only those the brief mentions.",
+        "depends_on": [
+          "goal",
+          "places"
+        ],
+        "answer": "The game has a person living in the house, creatures in the tall grass, and milestones in the town."
+      },
+      {
+        "id": "order",
+        "question": "What must happen before what? List each step that must come first and what it makes possible. Include only requirements the brief states or plainly implies.",
+        "depends_on": [
+          "goal",
+          "places",
+          "roles"
+        ],
+        "answer": "The brief does not say."
+      },
+      {
+        "id": "stuck",
+        "question": "When the player is stuck or does not know what to do next, what should it do? Use only hints the brief gives.",
+        "depends_on": [
+          "goal",
+          "controls",
+          "order"
+        ],
+        "answer": "Talk to the person in the house, look at what a door leads to, and try the doors you have not used yet."
+      },
+      {
+        "id": "howto",
+        "question": "Which short how-to guides does the brief describe (for example for talking to people or for fights)? Give each a short name and its steps.",
+        "depends_on": [
+          "controls",
+          "roles",
+          "order"
+        ],
+        "answer": "Talk to person in house:\n1. Approach the person.\n2. Press A to talk or confirm a choice.\n\nFight a creature:\n1. Weaken the creature with weak attacks.\n2. Throw a ball to catch the creature.\n3. (Optionally) Use a strong attack to knock out the creature."
+      },
+      {
+        "id": "backbone",
+        "question": "Using the brief and your earlier answers, write the game's knowledge graph as one JSON object and nothing else.\nShape:\n{\"nodes\": {\"<id>\": {\"role\": \"<kind of thing>\", \"about\": \"<one short sentence>\"}},\n \"edges\": [[\"<node id>\", \"<relation>\", \"<node id>\"]],\n \"recipes\": {\"<name>\": \"<short how-to guide>\"}}\nRules:\n- Ids, relations, and recipe names are snake_case (a-z, 0-9, _). Every id in an edge must be a node you defined.\n- One node for the goal, with id \"goal\" and role \"goal\". One node for each place, person, item, creature, or milestone the brief names; role says which kind.\n- Relations say how nodes depend on each other, such as requires, leads_to, located_in, contains, lives_in, or unlocks. Use \"requires\" for what must come first.\n- Recipes hold how-to guides: one named \"controls\" with what each control does, one named \"when_stuck\" with what to do when stuck (if the brief gives any hint), and one per how-to guide from your earlier answers.\n- Use only what the brief says. Do not add nodes, edges, or recipes the brief does not support.",
+        "depends_on": [
+          "goal",
+          "controls",
+          "places",
+          "roles",
+          "order",
+          "stuck",
+          "howto"
+        ],
+        "answer": "{\n  \"nodes\": {\n    \"goal\": {\"role\": \"goal\", \"about\": \"find and reach a milestone\"},\n    \"house\": {\"role\": \"place\", \"about\": \"where the player lives\"},\n    \"pebble_town\": {\"role\": \"place\", \"about\": \"the town outside the house\"},\n    \"tall_grass\": {\"role\": \"place\", \"about\": \"a wide patch of tall grass in the town\"},\n    \"person\": {\"role\": \"person\", \"about\": \"a companion living in the house\"},\n    \"creature\": {\"role\": \"creature\", \"about\": \"a creature in the tall grass\"},\n    \"milestone\": {\"role\": \"item\", \"about\": \"a spot that records progress\"}\n  },\n  \"edges\": [\n    [\"house\", \"contains\", \"person\"],\n    [\"house\", \"contains\", \"milestone\"],\n    [\"pebble_town\", \"contains\", \"tall_grass\"],\n    [\"person\", \"lives_in\", \"house\"],\n    [\"tall_grass\", \"contains\", \"creature\"],\n    [\"house\", \"leads_to\", \"pebble_town\"],\n    [\"house\", \"requires\", \"person\"],\n    [\"pebble_town\", \"requires\", \"person\"],\n    [\"tall_grass\", \"requires\", \"pebble_town\"],\n    [\"tall_grass\", \"requires\", \"creature\"],\n    [\"milestone\", \"requires\", \"pebble_town\"]\n  ],\n  \"recipes\": {\n    \"controls\": \"UP, DOWN, LEFT, RIGHT: walk one step in that direction, or turn to face it\\nA: talk to the person you are facing, or confirm a choice in a menu or fight\\nB: cancel, or close a message\",\n    \"when_stuck\": \"Talk to the person in the house, look at what a door leads to, and try the doors you have not used yet\",\n    \"talk_to_person_in_house\": \"Approach the person and press A to talk or confirm a choice in a menu or fight\",\n    \"fight_a_creature\": \"Weaken the creature with weak attacks first, then throw a ball to catch it. Optionally, use a strong attack to knock it out\"\n  }\n}",
+        "attempts": [
+          {
+            "answer": "{\n  \"nodes\": {\n    \"goal\": {\"role\": \"goal\", \"about\": \"find and reach a milestone\"},\n    \"house\": {\"role\": \"place\", \"about\": \"where the player lives\"},\n    \"pebble_town\": {\"role\": \"place\", \"about\": \"the town outside the house\"},\n    \"tall_grass\": {\"role\": \"place\", \"about\": \"a wide patch of tall grass in the town\"},\n    \"person\": {\"role\": \"person\", \"about\": \"a companion living in the house\"},\n    \"creature\": {\"role\": \"creature\", \"about\": \"a creature in the tall grass\"},\n    \"milestone\": {\"role\": \"item\", \"about\": \"a spot that records progress\"}\n  },\n  \"edges\": [\n    [\"house\", \"contains\", \"person\"],\n    [\"house\", \"contains\", \"milestone\"],\n    [\"pebble_town\", \"contains\", \"tall_grass\"],\n    [\"person\", \"lives_in\", \"house\"],\n    [\"tall_grass\", \"contains\", \"creature\"],\n    [\"person\", \"knows\", \"pebble_town\"],\n    [\"house\", \"leads_to\", \"pebble_town\"],\n    [\"house\", \"requires\", \"person\"],\n    [\"pebble_town\", \"requires\", \"person\"],\n    [\"tall_grass\", \"requires\", \"pebble_town\"],\n    [\"tall_grass\", \"requires\", \"creature\"],\n    [\"milestone\", \"requires\", \"pebble_town\"]\n  ],\n  \"recipes\": {\n    \"controls\": {\n      \"steps\": [\n        {\"control\": \"UP, DOWN, LEFT, RIGHT\", \"effect\": \"walk one step in that direction, or turn to face it\"},\n        {\"control\": \"A\", \"effect\": \"talk to the person you are facing, or confirm a choice in a menu or fight\"},\n        {\"control\": \"B\", \"effect\": \"cancel, or close a message\"}\n      ]\n    },\n    \"when_stuck\": {\n      \"steps\": [\n        \"Talk to the person in the house\",\n        \"Look at what a door leads to\",\n        \"Try the doors you have not used yet\"\n      ]\n    },\n    \"talk_to_person_in_house\": {\n      \"steps\": [\n        \"Approach the person\",\n        \"Press A to talk or confirm a choice\"\n      ]\n    },\n    \"fight_a_creature\": {\n      \"steps\": [\n        \"Weaken the creature with weak attacks\",\n        \"Throw a ball to catch the creature\",\n        \"Use a strong attack to knock out the creature (optional)\"\n      ]\n    }\n  }\n}",
+            "errors": [
+              "recipe 'controls' must be a non-empty string",
+              "recipe 'when_stuck' must be a non-empty string",
+              "recipe 'talk_to_person_in_house' must be a non-empty string",
+              "recipe 'fight_a_creature' must be a non-empty string"
+            ]
+          },
+          {
+            "answer": "{\n  \"nodes\": {\n    \"goal\": {\"role\": \"goal\", \"about\": \"find and reach a milestone\"},\n    \"house\": {\"role\": \"place\", \"about\": \"where the player lives\"},\n    \"pebble_town\": {\"role\": \"place\", \"about\": \"the town outside the house\"},\n    \"tall_grass\": {\"role\": \"place\", \"about\": \"a wide patch of tall grass in the town\"},\n    \"person\": {\"role\": \"person\", \"about\": \"a companion living in the house\"},\n    \"creature\": {\"role\": \"creature\", \"about\": \"a creature in the tall grass\"},\n    \"milestone\": {\"role\": \"item\", \"about\": \"a spot that records progress\"}\n  },\n  \"edges\": [\n    [\"house\", \"contains\", \"person\"],\n    [\"house\", \"contains\", \"milestone\"],\n    [\"pebble_town\", \"contains\", \"tall_grass\"],\n    [\"person\", \"lives_in\", \"house\"],\n    [\"tall_grass\", \"contains\", \"creature\"],\n    [\"house\", \"leads_to\", \"pebble_town\"],\n    [\"house\", \"requires\", \"person\"],\n    [\"pebble_town\", \"requires\", \"person\"],\n    [\"tall_grass\", \"requires\", \"pebble_town\"],\n    [\"tall_grass\", \"requires\", \"creature\"],\n    [\"milestone\", \"requires\", \"pebble_town\"]\n  ],\n  \"recipes\": {\n    \"controls\": \"UP, DOWN, LEFT, RIGHT: walk one step in that direction, or turn to face it\\nA: talk to the person you are facing, or confirm a choice in a menu or fight\\nB: cancel, or close a message\",\n    \"when_stuck\": \"Talk to the person in the house, look at what a door leads to, and try the doors you have not used yet\",\n    \"talk_to_person_in_house\": \"Approach the person and press A to talk or confirm a choice in a menu or fight\",\n    \"fight_a_creature\": \"Weaken the creature with weak attacks first, then throw a ball to catch it. Optionally, use a strong attack to knock it out\"\n  }\n}",
+            "errors": []
+          }
+        ]
+      }
+    ]
+  }
+}
