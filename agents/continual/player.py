@@ -16,7 +16,7 @@ refinements.
 
     decide: [scheduled refine] -> model picks a tool call
       press {key, times}             one or more presses
-      run_skill {name}               a skill from the library, one press per step
+      run_skill {name, args?}        a skill from the library, one press per step
       write_memory {title, ...}      no game time; the model picks again
       refine {reason, num_steps}     no game time; rate-limited; the model picks again
 
@@ -55,6 +55,14 @@ Differences from the authors' code, because the setting differs:
   fell below the baseline as its own Refiner.
 - The original's skills and memory stores live on a server and are inspected
   through tools; here they are in-process and every edit is in the trace.
+- skill_parameters (off by default; SkillWeaver, Zheng et al. 2025, arXiv:2504.07079):
+  a skill may declare parameters (`skill walk_to target`), and `run_skill` takes
+  `args`, one value per parameter, bound by position (`{"name": "walk_to", "args": [9]}`).
+  A wrong count is rejected with the reason before any press. This player has no
+  tools interface, so a parameter stands where a JSON value goes (`until x == $target
+  (max 20):`) or in a `call`, not in `go_to`. A Refiner-written skill may declare
+  parameters. Off, parameter syntax is rejected and `run_skill` takes only `name`.
+  Skills are not tested before they enter the library (that is Voyager's `test_skills`).
 - Few-shot: `examples` tool_calls whose tool is one of ours are shown to the
   agent, and `examples` programs are shown to the Refiner's skills pass as
   language examples. They are not stored in the library.
@@ -150,8 +158,10 @@ class ContinualHarness:
         memory_shown: int = 8,
         max_calls_per_decision: int = 10,
         examples: Examples | None = None,
+        skill_parameters: bool = False,
     ) -> None:
         self.model = model
+        self.skill_parameters = skill_parameters
         self.refiner_model = refiner_model
         self.refine_prompt, self.refine_skills, self.refine_memory = refine_prompt, refine_skills, refine_memory
         self.agent_meta_tools = agent_meta_tools
@@ -171,7 +181,8 @@ class ContinualHarness:
         ours = [call for call in (examples.tool_calls if examples else ()) if call.reply.get("tool") in TOOLS]
         self._example_replies = dataclasses.replace(examples, tool_calls=tuple(ours)).tool_calls_text() if ours else ""
         self.refiner = Refiner(
-            refiner_model or model, prompt=refine_prompt, skills=refine_skills, memory=refine_memory, example_programs=self._example_programs
+            refiner_model or model, prompt=refine_prompt, skills=refine_skills, memory=refine_memory,
+            example_programs=self._example_programs, skill_parameters=skill_parameters,
         )
         self._seed = json.loads(harness_path.read_text()) if harness_path is not None and harness_path.exists() else None
         self.harness = self._new_harness()
@@ -188,6 +199,7 @@ class ContinualHarness:
             "separate_refiner_model": self.refiner_model is not None,
             "few_shot": bool(self._example_replies or self._example_programs),
             "thinking": False,
+            "skill_parameters": self.skill_parameters,
         }
 
     def _new_harness(self) -> HarnessState:
@@ -230,7 +242,7 @@ class ContinualHarness:
 
     def decide(self, observation: Observation, legal_actions: Sequence[Action]) -> Decision:
         self._keys = [action.key for action in legal_actions]
-        self.harness.bind(self._keys)
+        self.harness.bind(self._keys, parameters=self.skill_parameters)
         self._close_last_press(observation)
         turn = _Turn()
         if self._due():
@@ -309,11 +321,20 @@ class ContinualHarness:
         return {"key": by_upper[key.strip().upper()], "times": times}
 
     def _check_run_skill(self, args: dict) -> dict[str, Any]:
-        only_fields(args, {"name"}, {"name"})
+        only_fields(args, {"name", "args"} if self.skill_parameters else {"name"}, {"name"})
         name, skills = args["name"], sorted(self.harness.library.skills)
         if not isinstance(name, str) or name not in skills:
             raise Invalid(f"no skill named {name!r}; the library has: {skills or 'no skills'}")
-        return {"name": name}
+        if not self.skill_parameters:
+            return {"name": name}
+        given = args.get("args", [])
+        if not isinstance(given, list):
+            raise Invalid('"args" must be a list of values, one per parameter')
+        params = self.harness.library.skills[name].program.params
+        if len(given) != len(params):
+            wanted = f"{len(params)} argument{'s' if len(params) != 1 else ''} ({', '.join(params)})" if params else "no arguments"
+            raise Invalid(f"skill {name} takes {wanted} but got {len(given)}")
+        return {"name": name, "args": given}
 
     def _check_write_memory(self, args: dict) -> dict[str, Any]:
         only_fields(args, {"title", "content", "importance"}, {"title", "content"})
@@ -429,8 +450,10 @@ class ContinualHarness:
             skill, label = args["name"], f"skill {args['name']}"
             program = self.harness.library.skills[skill].program
             self.harness.meta[skill].uses += 1
+            if args.get("args"):
+                label += f" {json.dumps(args['args'])}"
         run = Run()
-        steps = execute(program, self.harness.library.programs(), observation, run)
+        steps = execute(program, self.harness.library.programs(), observation, run, None, args.get("args", ()))
         self._running = _Running(tool, label, program, steps, run, observation, why, skill)
 
     def _advance(self, observation: Observation, turn: _Turn) -> Action | None:
@@ -469,9 +492,9 @@ class ContinualHarness:
         if error:
             self.harness.meta[running.skill].failures += 1
             self._note_failure(f"skill {running.skill} failed after {running.run.presses} presses: {error}")
-            self._results.append(f"run_skill {running.skill}: FAILED after {running.run.presses} presses: {error}")
+            self._results.append(f"run_skill {running.label.removeprefix('skill ')}: FAILED after {running.run.presses} presses: {error}")
         else:
-            self._results.append(f"run_skill {running.skill}: finished, {running.run.presses} presses. {change}")
+            self._results.append(f"run_skill {running.label.removeprefix('skill ')}: finished, {running.run.presses} presses. {change}")
 
     def _close_last_press(self, observation: Observation) -> None:
         if self._last_press is None:
@@ -495,11 +518,15 @@ class ContinualHarness:
     def _system(self) -> str:
         names = self._tool_names()
         text = prompts.system(
-            "\n\n".join(prompts.TOOLS[name].format(keys="|".join(self._keys), max_times=self.max_press_times) for name in names), names
+            "\n\n".join(self._tool_text(name) for name in names), names
         )
         if self._example_replies:
             text += "\n\n" + prompts.EXAMPLE_REPLIES.format(replies=self._example_replies)
         return text
+
+    def _tool_text(self, name: str) -> str:
+        text = prompts.RUN_SKILL_PARAMETERS if name == "run_skill" and self.skill_parameters else prompts.TOOLS[name]
+        return text.format(keys="|".join(self._keys), max_times=self.max_press_times)
 
     def _shows_guidance(self) -> bool:
         return bool(self.harness.guidance) or self.refine_prompt

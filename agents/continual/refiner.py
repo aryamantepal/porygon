@@ -34,6 +34,7 @@ from agents.continual.validate import (
     text_field,
 )
 from agents.models import ChatModel, Message, ModelCall
+from agents.voyager import prompts as voyager_prompts
 from agents.voyager.prompts import EXAMPLE_PROGRAMS, SKILL_LANGUAGE
 from agents.voyager.skills import SkillError, parse
 
@@ -60,11 +61,12 @@ class Refinement:
 
 class Refiner:
     def __init__(
-        self, model: ChatModel, *, prompt: bool = True, skills: bool = True, memory: bool = True, example_programs: str = ""
+        self, model: ChatModel, *, prompt: bool = True, skills: bool = True, memory: bool = True, example_programs: str = "", skill_parameters: bool = False
     ) -> None:
         self.model = model
         self.prompt, self.skills, self.memory = prompt, skills, memory
         self.example_programs = example_programs
+        self.skill_parameters = skill_parameters
         self.last_skill_rejections: list[str] = []
 
     def reset(self) -> None:
@@ -136,18 +138,19 @@ class Refiner:
         examples = ""
         if self.example_programs:
             examples = "\n" + EXAMPLE_PROGRAMS.format(programs=self.example_programs) + "\n"
+        parameters = voyager_prompts.skill_parameters() + "\n" + prompts.REFINER_PARAMETERS if self.skill_parameters else ""
         text = self._ask(
             refinement,
             prompts.SKILLS_PASS.format(
                 goal=goal, skills=harness.skill_text(source=True), count=count, window=window, failures=failures,
                 rejected=rejected, language=SKILL_LANGUAGE.replace("<ACTION>", "|".join(keys)), keys=", ".join(keys),
-                examples=examples, max_edits=MAX_EDITS,
+                examples=examples, parameters=parameters, max_edits=MAX_EDITS,
             ),
         )
         adds, updates = _read_edits(text, result)
         for op, edit in _within_cap([("add", e) for e in adds] + [("update", e) for e in updates], result):
             try:
-                applied = _add_skill(harness, edit, keys) if op == "add" else _update_skill(harness, edit, keys)
+                applied = _add_skill(harness, edit, keys, self.skill_parameters) if op == "add" else _update_skill(harness, edit, keys, self.skill_parameters)
             except Invalid as problem:
                 result.rejected.append({"op": op, "edit": edit, "reason": str(problem)})
             else:
@@ -201,10 +204,10 @@ def _label(edit: Any) -> str:
     return str(edit.get("name") or edit.get("id") or edit.get("title") or "?") if isinstance(edit, dict) else "?"
 
 
-def _program(edit: dict, name: str, keys: Sequence[str]):
+def _program(edit: dict, name: str, keys: Sequence[str], parameters: bool):
     code = text_field(edit, "code", MAX_CODE)
     try:
-        program = parse(code, keys)
+        program = parse(code, keys, parameters=parameters)
     except SkillError as problem:
         raise Invalid(f"the code does not parse: {problem}") from None
     if program.name != name:
@@ -215,7 +218,7 @@ def _program(edit: dict, name: str, keys: Sequence[str]):
 # Skill edits
 
 
-def _add_skill(harness: HarnessState, edit: Any, keys: Sequence[str]) -> dict[str, Any]:
+def _add_skill(harness: HarnessState, edit: Any, keys: Sequence[str], parameters: bool) -> dict[str, Any]:
     edit = only_fields(edit, {"name", "description", "code", "effectiveness", "importance", "path"}, {"name", "description", "code"})
     name = edit["name"]
     if not isinstance(name, str) or not NAME.match(name):
@@ -223,7 +226,7 @@ def _add_skill(harness: HarnessState, edit: Any, keys: Sequence[str]) -> dict[st
     if name in harness.library.skills:
         raise Invalid(f"`{name}` already exists; use update with its id")
     description = text_field(edit, "description", MAX_DESCRIPTION)
-    program = _program(edit, name, keys)
+    program = _program(edit, name, keys, parameters)
     effectiveness, importance = effectiveness_field(edit), importance_field(edit)
     stored, evicted = harness.add_skill(program, description, effectiveness, importance, "refiner")
     if not stored:
@@ -231,7 +234,7 @@ def _add_skill(harness: HarnessState, edit: Any, keys: Sequence[str]) -> dict[st
     return {"id": name, "evicted": evicted}
 
 
-def _update_skill(harness: HarnessState, edit: Any, keys: Sequence[str]) -> dict[str, Any]:
+def _update_skill(harness: HarnessState, edit: Any, keys: Sequence[str], parameters: bool) -> dict[str, Any]:
     edit = only_fields(edit, {"id", "description", "code", "effectiveness", "importance"}, {"id"})
     name = edit["id"]
     if name not in harness.library.skills:
@@ -240,7 +243,7 @@ def _update_skill(harness: HarnessState, edit: Any, keys: Sequence[str]) -> dict
         raise Invalid("nothing to update")
     skill, meta = harness.library.skills[name], harness.meta[name]
     description = text_field(edit, "description", MAX_DESCRIPTION) if "description" in edit else skill.description
-    program = _program(edit, name, keys) if "code" in edit else skill.program
+    program = _program(edit, name, keys, parameters) if "code" in edit else skill.program
     effectiveness = effectiveness_field(edit, meta.effectiveness)
     importance = importance_field(edit, meta.importance)
     harness.add_skill(program, description, effectiveness, importance, meta.origin)

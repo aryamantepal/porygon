@@ -455,6 +455,7 @@ def test_mechanisms_default_to_the_paper():
     assert mechanisms == {
         "refine_prompt": True, "refine_skills": True, "refine_memory": True, "agent_meta_tools": True,
         "carry_across_trials": False, "separate_refiner_model": False, "few_shot": False, "thinking": False,
+        "skill_parameters": False,
     }
 
 
@@ -699,6 +700,7 @@ def test_make_player_wires_every_switch_from_config():
     assert player.mechanisms() == {
         "refine_prompt": False, "refine_skills": False, "refine_memory": False, "agent_meta_tools": False,
         "carry_across_trials": True, "separate_refiner_model": True, "few_shot": True, "thinking": False,
+        "skill_parameters": False,
     }
     assert player.schedule == {"warmup": 7, "early_every": 3, "early_until": 20, "late_every": 10} and player.refine_window == 12
     assert player.refiner.model.model_id == "other-model"
@@ -707,7 +709,7 @@ def test_make_player_wires_every_switch_from_config():
 
 def test_continual_configs_are_valid():
     paths = sorted(ROOT.glob("experiments/*_continual*.json"))
-    assert {p.name for p in paths} == {"firered_7b_continual.json", "gridworld_7b_continual.json", "gridworld_7b_continual_skills_only.json"}
+    assert {p.name for p in paths} == {"firered_7b_continual.json", "gridworld_7b_continual.json", "gridworld_7b_continual_params.json", "gridworld_7b_continual_skills_only.json"}
     for path in paths:
         spec = json.loads(path.read_text())
         mechanisms = make_player(spec["agent"], scripted()).mechanisms()

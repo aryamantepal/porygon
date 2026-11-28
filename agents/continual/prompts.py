@@ -129,6 +129,9 @@ TOOLS = {
     "refine": '**refine** args: {{"reason": "<what is not working>", "num_steps": n}}  (both optional). Ask the Refiner to review your recent steps now and edit your guidance, skills, and memory. Takes no game time. Rate-limited; use it when a skill underperforms or you are stuck.',
 }
 
+# With the skill_parameters switch, run_skill takes arguments for a skill that declares parameters.
+RUN_SKILL_PARAMETERS = '**run_skill** args: {{"name": "<skill name>", "args": [<value>, ...]}}. Run a skill from the library; each press it makes is one step. Use it for any sequence you would otherwise press by hand. A skill listed as `name(param, ...)` takes one argument per parameter, in order, each a JSON value such as 10, [4, 0], or "door_0"; "args" is omitted for a skill with no parameters.'
+
 EXAMPLE_REPLIES = """\
 Here are example replies, from a different goal than yours. They show the form, not the answer to your task.
 
@@ -146,6 +149,11 @@ REPEAT_NOTE = (
 )
 
 REFINED = "HARNESS REFINEMENT completed. Changes to your toolkit:"
+
+# Added to the skills pass with skill_parameters: parameters take values here (`$name` in an `until`, or in a `call`).
+REFINER_PARAMETERS = """\
+Parameters are on. A skill you write may take parameters and `run_skill` passes the agent's arguments to it. Here a parameter can stand only where a JSON value goes (`until x == $target (max 20):`) or in a `call`. List a skill's parameters in its header and write a parameterized skill when the same steps recur with a different target.
+"""
 
 # Refiner side
 
@@ -214,7 +222,7 @@ Your job: identify reusable behavioral patterns (skills) from successful actions
 {language}
 
 Legal keys: {keys}. A skill runs one press per step. Conditions need the State, so they fail when the run shows no State.
-{examples}
+{parameters}{examples}
 ## Analysis Tasks
 
 1. **Identify underperforming skills from reasoning traces**: Review the agent's reasoning to find skills that failed, errored, or produced undesirable outcomes. If the agent complained about a skill or abandoned it, recommend a rewrite with full replacement `code`.

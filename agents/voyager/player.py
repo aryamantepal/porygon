@@ -37,6 +37,29 @@ Mechanisms, each switchable for ablations:
   the battle specialist then plays the battle and the task resumes. Dialogue and
   busy do not interrupt a program, so `talk_to` can finish in a conversation;
   the specialist presses through it once the program is over.
+- skill_parameters (SkillWeaver, Zheng et al. 2025, arXiv:2504.07079): a skill
+  may declare parameters (`skill walk_through door`) and use `$door` where a
+  place id or a JSON value goes (`go_to $door`, `until map != $start_map (max 10):`,
+  `call other_skill $door`), so one skill serves any target. `call` passes
+  arguments positionally; a wrong count is an execution error. The code block
+  may hold several skills: the last one runs with no arguments and calls the
+  earlier ones with arguments, so a new parameterized skill is written and used
+  in one reply. There is no separate `run` form: the last skill's body is the
+  invocation. Earlier skills are stored (when the task succeeds) beside the last.
+- test_skills (needs skill_parameters and the library): SkillWeaver tests a new
+  skill in a sandbox before keeping it. An agent here cannot restore the
+  environment's state, so a skill that takes parameters instead enters the
+  library as a "candidate", with the argument lists of the run that got it
+  accepted, and is promoted to "verified" the first time a later program that
+  calls it with different arguments succeeds (critic accepts, or no error when
+  self-verification is off, and the run had no error). Uses and successes are
+  counted per skill. Retrieval scales a candidate's score down, so a verified
+  skill wins a near tie, and the prompt marks a candidate with a comment line.
+  A parameterized skill the program never called, or whose run ended in an
+  error, is not stored. Writing a stored skill again with the same source is a
+  use of it, not a new version; changed source is a new, untested candidate.
+  The test is weaker than SkillWeaver's: the critic judges the whole program's
+  final state, not the skill alone, and it runs on whatever state the world is in.
 """
 
 from __future__ import annotations
@@ -56,7 +79,7 @@ from agents.harness.specialists import Specialists
 from agents.models import ChatModel, Message, ModelCall
 from agents.protocol import Decision, Review, TrialOutcome
 from agents.voyager import prompts
-from agents.voyager.skills import Program, Run, SkillError, SkillInterrupted, SkillLibrary, execute, parse
+from agents.voyager.skills import Program, Run, SkillError, SkillInterrupted, SkillLibrary, execute, parse_all
 from environments.protocol import Action, Observation, Press
 
 MAX_TOOL_NOTES = 10  # tool results kept in a program's environment feedback
@@ -82,6 +105,12 @@ class Execution:
     run: Run
     start: Observation
     primed: bool = False
+    definitions: tuple[Program, ...] = ()  # skills defined earlier in the same code block (`skill_parameters`)
+
+    @property
+    def source(self) -> str:
+        """The whole code block, so a rewrite sees the definitions too."""
+        return "\n\n".join(p.source for p in (*self.definitions, self.program))
 
 
 @dataclass
@@ -110,10 +139,16 @@ class Voyager:
         examples: Examples | None = None,
         action_interface: str = "buttons",
         specialists: bool = False,
+        skill_parameters: bool = False,
+        test_skills: bool = False,
     ) -> None:
         self.model = model
         self.tools = check_interface(action_interface, specialists)
         self.specialists = specialists
+        if test_skills and not (skill_parameters and skill_library):
+            raise ValueError("test_skills only works with skill_parameters and the skill library: only a skill with parameters is tested")
+        self.skill_parameters = skill_parameters
+        self.test_skills = test_skills
         self._specialists = Specialists(model)
         self._example_programs = examples.programs_text() if examples else ""
         self.curriculum = curriculum
@@ -142,6 +177,8 @@ class Voyager:
             "thinking": False,
             "tools": self.tools,
             "specialists": self.specialists,
+            "skill_parameters": self.skill_parameters,
+            "test_skills": self.test_skills,
         }
 
     def start_trial(self, goal: str) -> None:
@@ -152,19 +189,23 @@ class Voyager:
         self._specialists.reset()
 
     def end_trial(self, outcome: TrialOutcome) -> Review:
-        return Review(
-            trace={
-                "completed_tasks": list(self.completed_tasks),
-                "failed_tasks": list(self.failed_tasks),
-                "skills": sorted(self.library.skills),
+        trace = {
+            "completed_tasks": list(self.completed_tasks),
+            "failed_tasks": list(self.failed_tasks),
+            "skills": sorted(self.library.skills),
+        }
+        if self.test_skills:
+            trace["skill_status"] = {
+                name: {"status": s.status, "uses": s.uses, "successes": s.successes, "proven_with": list(s.proven_with)}
+                for name, s in sorted(self.library.skills.items())
             }
-        )
+        return Review(trace=trace)
 
     # One step
 
     def decide(self, observation: Observation, legal_actions: Sequence[Action]) -> Decision:
         keys = [action.key for action in legal_actions]
-        self.library.bind(keys, tools=self.tools)
+        self.library.bind(keys, tools=self.tools, parameters=self.skill_parameters)
         turn = _Turn()
         while len(turn.calls) < self.max_calls_per_decision:
             if self._special is not None:
@@ -242,14 +283,14 @@ class Voyager:
         task = self._task
         retrieved = self.library.retrieve(f"{task.text} {task.context}", self.retrieval_k) if self.skill_library else []
         turn.events.append({"type": "retrieved_skills", "skills": [s.program.name for s in retrieved]})
-        programs = "\n\n".join(s.program.source for s in retrieved) or "(none yet)"
+        programs = "\n\n".join(s.shown for s in retrieved) or "(none yet)"
         if self._example_programs:
             programs += "\n\n" + prompts.EXAMPLE_PROGRAMS.format(programs=self._example_programs)
         offered = self.tools and tools.navigable(observation.state)
         if self.tools and not offered:
             turn.events.append({"type": "tools_offered", "tools": [], "reason": "this observation has no grid and position, so the language lists no tool statements"})
         system = prompts.ACTION_TEMPLATE.format(
-            language=(prompts.SKILL_LANGUAGE_TOOLS if offered else prompts.SKILL_LANGUAGE).replace("<ACTION>", "|".join(keys)),
+            language=prompts.skill_language(tools=bool(offered), parameters=self.skill_parameters, testing=self.test_skills).replace("<ACTION>", "|".join(keys)),
             programs=programs,
             response_format=prompts.ACTION_RESPONSE_FORMAT,
         )
@@ -271,15 +312,20 @@ class Voyager:
         try:
             if code is None:
                 raise SkillError("the reply has no ```skill code block")
-            program = parse(code, keys, tools=self.tools)
+            *definitions, program = parse_all(code, keys, tools=self.tools, parameters=self.skill_parameters)
         except SkillError as failure:
             turn.events.append({"type": "program", "attempt": task.attempt, "explain": explain, "plan": plan, "source": code, "error": str(failure)})
             self._attempt_failed(task, code or "", str(failure), "", "", turn)
             return
-        turn.events.append({"type": "program", "attempt": task.attempt, "name": program.name, "explain": explain, "plan": plan, "source": program.source})
+        event = {"type": "program", "attempt": task.attempt, "name": program.name, "explain": explain, "plan": plan, "source": program.source}
+        if definitions:
+            event["definitions"] = {d.name: d.source for d in definitions}
+        turn.events.append(event)
         run = Run()
-        library = self.library.programs() if self.skill_library else None
-        self._execution = Execution(program, execute(program, library, observation, run, keys if self.tools else None), run, observation)
+        # skills defined in this block are callable now, and stored only if the task succeeds
+        library = {**self.library.programs(), **{d.name: d for d in definitions}} if self.skill_library else None
+        steps = execute(program, library, observation, run, keys if self.tools else None)
+        self._execution = Execution(program, steps, run, observation, definitions=tuple(definitions))
 
     # Self-verification
 
@@ -298,14 +344,19 @@ class Voyager:
             success, critique = self._critic(execution.start, observation, task, turn)
         else:
             success, critique = not error, ""
+        if self.test_skills and not interrupted:
+            self._record_uses(execution, success and not error, turn)
         if success:
             self.completed_tasks.append(task.text)
             turn.events.append({"type": "task_completed", "task": task.text})
             if self.skill_library:
-                self._add_skill(execution.program, task, turn)
+                if self.skill_parameters:
+                    self._add_skills(execution, task, error, turn)
+                else:
+                    self._add_skill(execution.program, task, turn)
             self._task = None
         else:
-            self._attempt_failed(task, execution.program.source, error, feedback, critique, turn)
+            self._attempt_failed(task, execution.source, error, feedback, critique, turn)
 
     def _critic(self, before: Observation, after: Observation, task: Task, turn: _Turn) -> tuple[bool, str]:
         before_text, _ = render_observation(before)
@@ -335,15 +386,51 @@ class Voyager:
 
     # Skill library
 
-    def _add_skill(self, program: Program, task: Task, turn: _Turn) -> None:
+    def _add_skill(self, program: Program, task: Task, turn: _Turn, *, status: str = "verified", proven_with: Sequence[Sequence[Any]] = ()) -> None:
         call = self.model.chat(
             [Message("system", prompts.SKILL_DESCRIPTION), Message("user", f"{program.source}\n\nThe skill is `{program.name}`.")],
             think=False,
         )
         turn.calls.append(call)
         description = call.output.strip().splitlines()[0] if call.output.strip() else task.text
-        skill = self.library.add(program, description, task.text)
-        turn.events.append({"type": "skill_added", "name": program.name, "version": skill.version, "description": description})
+        skill = self.library.add(program, description, task.text, status=status, proven_with=proven_with)
+        event = {"type": "skill_added", "name": program.name, "version": skill.version, "description": description}
+        if self.skill_parameters:
+            event |= {"params": list(program.params), "status": skill.status}
+        turn.events.append(event)
+
+    def _fresh(self, execution: Execution) -> set[str]:
+        """The block's definitions that are new or changed. Repeating a stored skill's exact source is a use of it, not a new version."""
+        stored = self.library.skills
+        return {d.name for d in execution.definitions if not (self.test_skills and d.name in stored and stored[d.name].program.source == d.source)}
+
+    def _add_skills(self, execution: Execution, task: Task, error: str, turn: _Turn) -> None:
+        """Store the block's definitions, then its program. With `test_skills` a skill that takes
+        parameters enters as a candidate with the arguments this run called it with, and is
+        not stored when the run never called it or ended in an error."""
+        fresh = self._fresh(execution)
+        for skill in (*execution.definitions, execution.program):
+            called = [args for name, args in execution.run.calls if name == skill.name]
+            if skill is not execution.program and skill.name not in fresh:
+                continue  # unchanged, and `_record_uses` counted this run as a use of it
+            if not (self.test_skills and skill.params):
+                self._add_skill(skill, task, turn)
+            elif called and not error:
+                self._add_skill(skill, task, turn, status="candidate", proven_with=called)
+            else:
+                reason = "the program ended in an error" if called else "the program never called it"
+                turn.events.append({"type": "skill_untested", "name": skill.name, "reason": f"{reason}, so it was not stored"})
+
+    def _record_uses(self, execution: Execution, success: bool, turn: _Turn) -> None:
+        """Count each library skill the run called, once per distinct arguments, and promote candidates."""
+        fresh = self._fresh(execution)
+        for name, args in dict.fromkeys((n, json.dumps(a)) for n, a in execution.run.calls if n not in fresh and n in self.library.skills):
+            skill, promoted = self.library.record_use(name, json.loads(args), success)
+            turn.events.append(
+                {"type": "skill_used", "name": name, "args": json.loads(args), "success": success, "status": skill.status, "uses": skill.uses, "successes": skill.successes}
+            )
+            if promoted:
+                turn.events.append({"type": "skill_promoted", "name": name, "args": json.loads(args), "successes": skill.successes})
 
     def _trace(self, turn: _Turn) -> dict[str, Any]:
         execution = self._execution

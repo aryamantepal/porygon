@@ -114,17 +114,18 @@ class HarnessState:
         lines = []
         for name in sorted(self.library.skills):
             skill, meta = self.library.skills[name], self.meta[name]
+            label = f"{name}({', '.join(skill.program.params)})" if skill.program.params else name
             lines.append(
-                f"- {name} (effectiveness: {meta.effectiveness}, importance: {meta.importance}, "
+                f"- {label} (effectiveness: {meta.effectiveness}, importance: {meta.importance}, "
                 f"used {meta.uses}, errors {meta.failures}): {skill.description}"
             )
             if source:
                 lines.append("    " + skill.program.source.replace("\n", "\n    "))
         return "\n".join(lines)
 
-    def bind(self, legal_keys) -> None:
+    def bind(self, legal_keys, *, parameters: bool = False) -> None:
         """Parse skills loaded from a file against this environment's legal actions."""
-        self.library.bind(legal_keys)
+        self.library.bind(legal_keys, parameters=parameters)
         for name in [n for n in self.meta if n not in self.library.skills]:
             del self.meta[name]
 

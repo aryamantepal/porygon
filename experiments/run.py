@@ -96,6 +96,8 @@ def make_player(spec: dict[str, Any], model: ChatModel):
             max_attempts=spec.get("max_attempts", 4),
             library_path=Path(spec["library_path"]) if spec.get("library_path") else None,
             examples=examples,
+            skill_parameters=spec.get("skill_parameters", False),
+            test_skills=spec.get("test_skills", False),
             **interface(spec),
         )
     if name == "crystal_harness":
@@ -132,6 +134,7 @@ def make_player(spec: dict[str, Any], model: ChatModel):
             max_skills=spec.get("max_skills", 12),
             harness_path=Path(spec["harness_path"]) if spec.get("harness_path") else None,
             examples=examples,
+            skill_parameters=spec.get("skill_parameters", False),
         )
     raise ValueError(f"unknown agent {name!r}")
 
