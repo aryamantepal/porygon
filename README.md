@@ -90,6 +90,7 @@ Agents are zero-shot by default. An agent block with `"examples": "<path>"` adds
 ```sh
 uv run python -m experiments.run experiments/gridworld_react.json
 uv run python -m evaluation.trace runs/<run> --trial 0
+uv run python -m evaluation.results runs/*   # one row per run: success, and presses, frames, calls, tokens to the goal
 ```
 
 The trace viewer prints each press beside the agent's reasoning and the progress that followed, so a claim like "I reached the stairs" sits next to the position that confirms or contradicts it.

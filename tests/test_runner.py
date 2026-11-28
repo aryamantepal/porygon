@@ -194,3 +194,15 @@ def test_run_config_records_the_code_version():
 
     version = code_version()
     assert set(version) == {"commit", "dirty"}
+
+
+def test_results_report_efficiency_over_successful_trials_only(tmp_path):
+    from evaluation.results import summarize, table
+
+    run(run_dir=tmp_path / "won", env=LineWorld(), player=Always("RIGHT"), goal=REACH_END, budgets=Budgets(max_steps=20), trials=2)
+    run(run_dir=tmp_path / "lost", env=LineWorld(), player=Always("LEFT"), goal=REACH_END, budgets=Budgets(max_steps=5))
+    won, lost = summarize(tmp_path / "won"), summarize(tmp_path / "lost")
+    assert (won["successes"], won["trials"], won["presses_to_goal"]) == (2, 2, 9)
+    assert won["frames_to_goal"] > 0
+    assert (lost["successes"], lost["presses_to_goal"]) == (0, None)
+    assert "| won | 2/2 | 9 |" in table([won, lost])
