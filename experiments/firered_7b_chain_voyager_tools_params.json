@@ -1,0 +1,71 @@
+{
+  "environment": {
+    "name": "firered",
+    "rom": "roms/firered.gba",
+    "state": "saves/start.state",
+    "mode": "structured"
+  },
+  "agent": {
+    "name": "voyager",
+    "curriculum": true,
+    "skill_library": true,
+    "iterative_prompting": true,
+    "self_verification": true,
+    "max_attempts": 4,
+    "action_interface": "tools",
+    "specialists": true,
+    "skill_parameters": true,
+    "test_skills": true
+  },
+  "model": {
+    "provider": "ollama",
+    "id": "qwen2.5:7b-instruct",
+    "temperature": 0.7,
+    "max_tokens": 768
+  },
+  "goal": {
+    "task_id": "firered-pallet-chain",
+    "chain": [
+      {
+        "task_id": "firered-downstairs",
+        "text": "Leave your bedroom by going down the stairs.",
+        "success": {
+          "map": [
+            4,
+            0
+          ]
+        },
+        "max_steps": 60
+      },
+      {
+        "task_id": "firered-leave-house",
+        "text": "Leave the house and step outside.",
+        "success": {
+          "map": [
+            3,
+            0
+          ]
+        },
+        "max_steps": 60,
+        "note": "Pallet Town; read from get_progress() two steps south of saves/route1.state."
+      },
+      {
+        "task_id": "firered-reach-route-1",
+        "text": "Follow the road north out of town to the first route.",
+        "success": {
+          "map": [
+            3,
+            19
+          ]
+        },
+        "max_steps": 120,
+        "note": "Route 1; read from get_progress() on saves/route1.state."
+      }
+    ]
+  },
+  "budgets": {
+    "max_steps": 240,
+    "max_decisions": 480
+  },
+  "trials": 3
+}

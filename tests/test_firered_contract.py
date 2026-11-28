@@ -77,6 +77,17 @@ def test_structured_observation_has_no_frame(tmp_path):
     assert observation.state["party"] == [{"level": 5, "hp": 19, "max_hp": 20}]
 
 
+def test_role_snapshot_fields(tmp_path):
+    env, _ = make_env(tmp_path, ObservationMode.STRUCTURED)
+    state = env.reset().state
+    assert state["context"] == "overworld"
+    assert state["map"] == "3.0" and state["position"] == [5, 7] and state["facing"] == "UP"
+    assert state["grid"] == ["#....", ".....", "....."]
+    assert state["places"] == [{"id": "door_0", "role": "door", "position": [1, 0], "leads_to": "3.1"}]
+    env.step(Press("RIGHT"))
+    assert env.observe().state["position"] == [6, 7]
+
+
 def test_progress_survives_save_and_reload(tmp_path):
     fake = FakeGBA(Path("unused.gba"))
     fake.set_badge(0)
@@ -116,11 +127,15 @@ def test_rejects_unknown_action(tmp_path):
         env.step(Press("JUMP"))
 
 
-def test_legal_actions_are_the_ten_buttons(tmp_path):
-    env, _ = make_env(tmp_path)
+def test_legal_actions_are_the_ten_buttons_and_wait(tmp_path):
+    env, fake = make_env(tmp_path)
     assert {action.key for action in env.legal_actions()} == {
-        "A", "B", "SELECT", "START", "RIGHT", "LEFT", "UP", "DOWN", "R", "L",
+        "A", "B", "SELECT", "START", "RIGHT", "LEFT", "UP", "DOWN", "R", "L", "WAIT",
     }
+    before = env.reset()
+    result = env.step(Press("WAIT"))
+    assert result.frames_advanced == env.config.hold_frames + env.config.release_frames
+    assert result.observation.state["x"] == before.state["x"]
 
 
 def test_recording_writes_one_line_per_transition(tmp_path):
@@ -166,3 +181,12 @@ def test_environments_import_no_agents_models_or_evaluation():
                 continue
             for name in names:
                 assert name.split(".")[0] not in forbidden, f"{path} imports {name}"
+
+
+def test_edge_tile_picks_the_walkable_tile_nearest_the_middle():
+    from environments.pokemon_firered.adapter import _edge_tile
+
+    grid = ["##..####", "#......#", "#......#", "########"]
+    assert _edge_tile(grid, "north") == (3, 0)
+    assert _edge_tile(grid, "south") is None  # no walkable tile: the exit is left out
+    assert _edge_tile(["#.", "..", "#."], "east") == (1, 1)

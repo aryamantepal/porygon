@@ -1,0 +1,36 @@
+{
+  "environment": {
+    "name": "gridworld",
+    "mode": "structured"
+  },
+  "agent": {
+    "name": "voyager",
+    "curriculum": true,
+    "skill_library": true,
+    "iterative_prompting": true,
+    "self_verification": true,
+    "max_attempts": 4,
+    "action_interface": "tools",
+    "specialists": true,
+    "skill_parameters": true,
+    "test_skills": true
+  },
+  "model": {
+    "provider": "ollama",
+    "id": "qwen2.5:7b-instruct",
+    "temperature": 0.7,
+    "max_tokens": 768
+  },
+  "goal": {
+    "task_id": "gridworld-milestone",
+    "text": "Reach the milestone in town.",
+    "success": {
+      "milestone": true
+    }
+  },
+  "budgets": {
+    "max_steps": 80,
+    "max_decisions": 160
+  },
+  "trials": 3
+}

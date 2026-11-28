@@ -9,7 +9,7 @@ The working sequence is `LOCAL.md` at the repo root. That file is gitignored. Wh
 | Package | Owns | May depend on |
 | --- | --- | --- |
 | `environments` | The adapter: emulator, saves, observations, actions, progress | nothing in `agents` or `evaluation` |
-| `agents` | Direct policy, ReAct, Reflexion, and Voyager (curriculum, skill library, iterative prompting) | the environment interface only |
+| `agents` | Direct policy, ReAct, Reflexion, Voyager (curriculum, skill library, iterative prompting), and Continual Harness (a Refiner that edits the agent's own harness) | the environment interface only |
 | `evaluation` | Goals, trials, budgets, logs, metrics, ablations | environment and agent interfaces |
 
 The adapter is the only code that knows the game is Pokémon. Agents see a snapshot and a goal. Evaluation decides scores from adapter state, budgets, and logs.
@@ -41,8 +41,9 @@ The runner calls one interface: observe, decide, step, until the goal is met or 
 
 - **Direct policy** — the current snapshot and the legal actions go in; one action comes out. The request includes no earlier turns, reflections, skills, or curriculum. Disable thinking and any other hidden trace so the output is the decision. A typed-decision model uses this same player: one pass, a choice among the actions. Ablation against ReAct is the comparison.
 - **ReAct** — reason, act, observe, repeat.
-- **Reflexion** — ReAct, plus verbal reflections on failures that later decisions can read. Ablation: reflections off.
+- **Reflexion** — ReAct, plus verbal reflections on failures that later decisions can read. Ablation: reflections off. Optional cross-trial insights (ExpeL) and retrieval of earlier successful trials; each is a switch, off by default.
 - **Voyager** — automatic curriculum, skill library, and iterative prompting. The curriculum proposes the next goal from progress and state. The library stores, retrieves, and composes skills. Iterative prompting revises a skill using environment feedback, execution errors, and self-verification. Each of those three can be turned off.
+- **Continual Harness** — one model acting through a minimal interface, plus a Refiner that edits the agent's own harness (guidance, skills, memory) mid-trial on a code schedule. Each refinement pass can be turned off. A trial starts from an empty harness unless the config carries one over. Skills are programs the adapter can execute, as in Voyager, and a skill that does not parse against the legal actions is rejected.
 
 Voyager's Minecraft skills are code. FireRed skills have to be something this adapter can execute. Do not invent a Minecraft action space inside the Pokémon adapter.
 
@@ -58,6 +59,8 @@ Every run config records:
 - observation mode
 - action space
 - budgets: environment steps, model calls, tokens, wall clock as applicable
+
+A goal may be a chain of levels, each judged from `get_progress()` in order within one trial, and a player's state carries from one level to the next.
 
 Record task success, game progression, environment steps, token usage and cost, recovery, skill reuse, and reliability across repeated trials. Persist prompts, model calls, trajectories, and checkpoints with the run. Ablations are configs for the same runner.
 

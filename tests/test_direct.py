@@ -7,7 +7,7 @@ from agents.direct import DirectPolicy
 from agents.models import ScriptedModel
 from environments.lineworld import LineWorld, LineWorldConfig
 from environments.protocol import ObservationMode
-from evaluation.goals import Goal
+from evaluation.goals import Goal, goal_from_dict
 from evaluation.runner import Budgets, run
 
 GOAL = Goal("reach-end", "Walk to the far right.", {"x": 9})
@@ -45,7 +45,7 @@ def test_trace_is_absent_and_thinking_off(tmp_path):
     record = json.loads((run_dir / "trials/000/steps.jsonl").read_text().splitlines()[1])
     assert record["decision"]["trace"] is None
     config = json.loads((run_dir / "config.json").read_text())
-    assert config["mechanisms"] == {"history": False, "thinking": False}
+    assert config["mechanisms"] == {"history": False, "thinking": False, "few_shot": False}
 
 
 def test_experiment_configs_parse():
@@ -53,9 +53,11 @@ def test_experiment_configs_parse():
 
     for path in Path(__file__).resolve().parents[1].glob("experiments/*.json"):
         spec = json.loads(path.read_text())
-        Goal(**spec["goal"])
+        goal_from_dict(spec["goal"])
         Budgets(**spec["budgets"])
         model = make_model(spec["model"])
+        if spec["agent"].get("backbone") and not Path(spec["agent"]["backbone"]).is_file():
+            continue  # a generated backbone; tests/test_brief.py covers its config
         make_player(spec["agent"], model)
         if spec["environment"]["name"] in ("lineworld", "gridworld"):
             make_environment(spec["environment"])

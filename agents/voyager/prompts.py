@@ -21,6 +21,44 @@ A skill program is a list of statements, one per line, with blocks indented unde
     call <skill_name>                 run a skill from the library
 Conditions read fields of the State (dotted paths such as party.0.hp) and compare with ==, !=, <, <=, >, >= against JSON values such as 10 or [4, 0]."""
 
+# With the tools interface the language gains three statements, listed only then.
+_CALL_LINE = "    call <skill_name>                 run a skill from the library\n"
+_TOOL_LINES = """\
+    go_to <place_id>                  walk to a place listed in the State's `places` (walking onto a door goes through it)
+    go_to [x, y]                      walk to a tile of the map
+    talk_to <place_id>                walk next to a person, face them, and talk
+go_to and talk_to expand into button presses, and each press counts toward the program's limit of 200. They fail when the place does not exist or there is no path, and stop early if the game leaves the overworld (a battle, a menu, a conversation).
+"""
+assert _CALL_LINE in SKILL_LANGUAGE
+SKILL_LANGUAGE_TOOLS = SKILL_LANGUAGE.replace(_CALL_LINE, _CALL_LINE + _TOOL_LINES)
+
+# With the skill_parameters switch the language gains parameters, listed only then.
+SKILL_PARAMETERS = """\
+Skills can take parameters, so one skill serves any target:
+    skill <name> <param> ...          optional parameter names after the skill name, e.g. `skill walk_to target`
+    until <field> <op> $<param> (max <n>):   a parameter can stand where a JSON value goes
+    call <skill_name> <arg> ...       pass arguments by position; a skill that takes parameters needs exactly that many
+An argument is a place id (door_0), a number, a JSON value (such as [4, 0]), or one of your own `$` parameters. There are no expressions."""
+_PARAMETER_TOOL_LINE = "    go_to $<param>                    a parameter can stand where a place id goes (also talk_to)\n"
+SKILL_PROGRAMS = """\
+One code block may hold several skills, each starting with its own `skill` line. The last one runs, with no arguments, so it must not take parameters; it calls the earlier ones (and library skills) with arguments. Skills defined earlier in the block are saved to the library when the task succeeds."""
+SKILL_TESTING = """\
+A library skill marked `# candidate` has succeeded only with the arguments listed. Call it with different arguments when the task allows: once it succeeds with new arguments it becomes verified."""
+
+
+def skill_parameters(*, tools: bool = False) -> str:
+    """The parameter lines of the language; `tools` adds `go_to $<param>`."""
+    marker = "    call <skill_name> <arg>"
+    return SKILL_PARAMETERS.replace(marker, (_PARAMETER_TOOL_LINE if tools else "") + marker)
+
+
+def skill_language(*, tools: bool, parameters: bool = False, testing: bool = False) -> str:
+    """The language for the action prompt. With `parameters` and `testing` off it is `SKILL_LANGUAGE` or `SKILL_LANGUAGE_TOOLS` exactly."""
+    text = SKILL_LANGUAGE_TOOLS if tools else SKILL_LANGUAGE
+    if parameters:
+        text += "\n" + skill_parameters(tools=tools) + "\n" + SKILL_PROGRAMS + ("\n" + SKILL_TESTING if testing else "")
+    return text
+
 ACTION_RESPONSE_FORMAT = """\
 Explain: ...
 Plan:
@@ -66,6 +104,11 @@ Code:
 You should only respond in the format as described below:
 RESPONSE FORMAT:
 {response_format}"""
+
+EXAMPLE_PROGRAMS = """\
+Here are example programs for a different task. They show the language only. They are not in the skill library, so do not `call` them.
+
+{programs}"""
 
 CRITIC = """\
 You are an assistant that assesses my progress of playing a video game and provides useful guidance.

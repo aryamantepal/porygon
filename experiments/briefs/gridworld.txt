@@ -1,0 +1,12 @@
+PEBBLE TOWN: a small adventure
+
+You live in a small house at the edge of Pebble Town. Another person lives in the house with you and knows the area well; talk to them to learn what is around. Doors join the house to the town outside. In the town there is a wide patch of tall grass, and creatures live in it. A creature you meet in the grass starts a fight. Weaken it with weak attacks first, then throw a ball to catch it. A strong attack can knock it out before you can catch it.
+
+Milestones are marked spots that record your progress. Your goal is to find a milestone and reach it.
+
+Controls
+- UP, DOWN, LEFT, RIGHT: walk one step in that direction, or turn to face it.
+- A: talk to the person you are facing, or confirm a choice in a menu or fight.
+- B: cancel, or close a message.
+
+If you do not know where to go, talk to the person in the house, look at what a door leads to, and try the doors you have not used yet.

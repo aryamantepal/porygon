@@ -1,0 +1,31 @@
+{
+  "environment": {
+    "name": "gridworld",
+    "mode": "structured"
+  },
+  "agent": {
+    "name": "crystal_harness",
+    "examples": "experiments/examples/gridworld.json",
+    "backbone": "experiments/knowledge/gridworld.json",
+    "summarize_dialogue": true,
+    "stuck_ladder": true
+  },
+  "model": {
+    "provider": "ollama",
+    "id": "qwen2.5:7b-instruct",
+    "temperature": 0.7,
+    "max_tokens": 768
+  },
+  "goal": {
+    "task_id": "gridworld-milestone",
+    "text": "Reach the milestone in town.",
+    "success": {
+      "milestone": true
+    }
+  },
+  "budgets": {
+    "max_steps": 80,
+    "max_decisions": 160
+  },
+  "trials": 3
+}

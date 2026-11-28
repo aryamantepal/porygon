@@ -32,6 +32,12 @@ def allowed_options(battle: Mapping[str, Any], goal: str) -> tuple[list[dict], l
     return allowed, removed
 
 
+def option_keys(option: Mapping[str, Any]) -> list[str] | None:
+    """Keys the adapter says choose this option from the screen, if it gave them."""
+    keys = option.get("keys")
+    return list(keys) if isinstance(keys, list) and keys else None
+
+
 def option_index(battle: Mapping[str, Any], option_id: str) -> int:
     ids = [option["id"] for option in battle.get("options", [])]
     return ids.index(option_id)

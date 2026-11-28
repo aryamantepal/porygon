@@ -21,6 +21,25 @@ def render_observation(observation: Observation) -> tuple[str, list[bytes]]:
     return "\n".join(parts), images
 
 
+def first_json_object(text: str):
+    """The first complete JSON object in a reply, ignoring anything after it.
+
+    Small models often close the object early and keep writing
+    (`{"tool": ...}, "intention": ...`); the first object is what they meant.
+    """
+    decoder = json.JSONDecoder()
+    start = text.find("{")
+    while start >= 0:
+        try:
+            value, _ = decoder.raw_decode(text, start)
+            if isinstance(value, dict):
+                return value
+        except json.JSONDecodeError:
+            pass
+        start = text.find("{", start + 1)
+    return None
+
+
 def describe_actions(legal_actions: Sequence[Action]) -> str:
     return ", ".join(action.key for action in legal_actions)
 

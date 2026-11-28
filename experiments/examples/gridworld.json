@@ -1,0 +1,276 @@
+{
+  "source": "Hand-written for GridWorld. Task shown: talking to the person in the house (goal progress `talked`), not the milestone task the gridworld_* configs evaluate. Observations are real GridWorld states from reset and scripted steps; thoughts, the reflection, programs, and replies are written by hand.",
+  "trajectories": [
+    {
+      "goal": "Talk to the person in the house.",
+      "turns": [
+        {
+          "observation": {
+            "context": "overworld",
+            "map": "house",
+            "position": [
+              1,
+              1
+            ],
+            "facing": "DOWN",
+            "grid": [
+              "#######",
+              "#.....#",
+              "#..#..#",
+              "#.....#",
+              "###.###"
+            ],
+            "places": [
+              {
+                "id": "person",
+                "role": "person",
+                "position": [
+                  3,
+                  2
+                ]
+              },
+              {
+                "id": "door_to_town",
+                "role": "door",
+                "position": [
+                  3,
+                  4
+                ],
+                "leads_to": "town"
+              }
+            ]
+          },
+          "thought": "The person is at [3, 2] and I am at [1, 1]. To talk I must stand next to them and face them. I will start by moving RIGHT.",
+          "action": "RIGHT"
+        },
+        {
+          "observation": {
+            "context": "overworld",
+            "map": "house",
+            "position": [
+              2,
+              1
+            ],
+            "facing": "RIGHT",
+            "grid": [
+              "#######",
+              "#.....#",
+              "#..#..#",
+              "#.....#",
+              "###.###"
+            ],
+            "places": [
+              {
+                "id": "person",
+                "role": "person",
+                "position": [
+                  3,
+                  2
+                ]
+              },
+              {
+                "id": "door_to_town",
+                "role": "door",
+                "position": [
+                  3,
+                  4
+                ],
+                "leads_to": "town"
+              }
+            ]
+          },
+          "thought": "The person is one row down and one column to the right. I will move DOWN so I am level with them.",
+          "action": "DOWN"
+        },
+        {
+          "observation": {
+            "context": "overworld",
+            "map": "house",
+            "position": [
+              2,
+              2
+            ],
+            "facing": "DOWN",
+            "grid": [
+              "#######",
+              "#.....#",
+              "#..#..#",
+              "#.....#",
+              "###.###"
+            ],
+            "places": [
+              {
+                "id": "person",
+                "role": "person",
+                "position": [
+                  3,
+                  2
+                ]
+              },
+              {
+                "id": "door_to_town",
+                "role": "door",
+                "position": [
+                  3,
+                  4
+                ],
+                "leads_to": "town"
+              }
+            ]
+          },
+          "thought": "The person is directly to my right at [3, 2], but I am facing DOWN. Pressing RIGHT into them turns me to face them without moving me.",
+          "action": "RIGHT"
+        },
+        {
+          "observation": {
+            "context": "overworld",
+            "map": "house",
+            "position": [
+              2,
+              2
+            ],
+            "facing": "RIGHT",
+            "grid": [
+              "#######",
+              "#.....#",
+              "#..#..#",
+              "#.....#",
+              "###.###"
+            ],
+            "places": [
+              {
+                "id": "person",
+                "role": "person",
+                "position": [
+                  3,
+                  2
+                ]
+              },
+              {
+                "id": "door_to_town",
+                "role": "door",
+                "position": [
+                  3,
+                  4
+                ],
+                "leads_to": "town"
+              }
+            ]
+          },
+          "thought": "I am next to the person and facing them. Pressing A talks to them.",
+          "action": "A"
+        }
+      ],
+      "outcome": "The person speaks. The goal is met."
+    }
+  ],
+  "reflections": [
+    {
+      "trajectory_summary": "Goal: Talk to the person in the house. Attempt: I pressed A five times at [1, 1] facing DOWN, then pressed UP twice into the wall. The trial ended at the step limit and the person was never spoken to.",
+      "reflection": "Plan: A only talks to someone I am next to and facing. The person was at [3, 2] and I started at [1, 1], so pressing A did nothing. I should have pressed RIGHT, then DOWN, then RIGHT again to face the person, and only then A."
+    }
+  ],
+  "programs": [
+    "skill talk_to_person\nRIGHT\nDOWN\nRIGHT\nA",
+    "skill close_dialogue\nuntil context == \"overworld\" (max 3):\n  A"
+  ],
+  "tool_calls": [
+    {
+      "goal": "Talk to the person in the house.",
+      "situation": {
+        "context": "overworld",
+        "map": "house",
+        "position": [
+          1,
+          1
+        ],
+        "facing": "DOWN",
+        "grid": [
+          "#######",
+          "#.....#",
+          "#..#..#",
+          "#.....#",
+          "###.###"
+        ],
+        "places": [
+          {
+            "id": "person",
+            "role": "person",
+            "position": [
+              3,
+              2
+            ]
+          },
+          {
+            "id": "door_to_town",
+            "role": "door",
+            "position": [
+              3,
+              4
+            ],
+            "leads_to": "town"
+          }
+        ]
+      },
+      "reply": {
+        "why": "The person is in this room, so I can walk to them and talk.",
+        "tool": "talk_to",
+        "args": {
+          "place": "person"
+        },
+        "intention": "Talk to the person in the house.",
+        "battle_goal": "defeat"
+      }
+    },
+    {
+      "goal": "Stand at position [2, 2].",
+      "situation": {
+        "context": "overworld",
+        "map": "house",
+        "position": [
+          1,
+          1
+        ],
+        "facing": "DOWN",
+        "grid": [
+          "#######",
+          "#.....#",
+          "#..#..#",
+          "#.....#",
+          "###.###"
+        ],
+        "places": [
+          {
+            "id": "person",
+            "role": "person",
+            "position": [
+              3,
+              2
+            ]
+          },
+          {
+            "id": "door_to_town",
+            "role": "door",
+            "position": [
+              3,
+              4
+            ],
+            "leads_to": "town"
+          }
+        ]
+      },
+      "reply": {
+        "why": "The goal names a tile, so I can walk to that position directly.",
+        "tool": "go_to",
+        "args": {
+          "position": [
+            2,
+            2
+          ]
+        },
+        "intention": "Stand at position [2, 2].",
+        "battle_goal": "defeat"
+      }
+    }
+  ]
+}

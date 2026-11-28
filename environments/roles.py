@@ -5,8 +5,10 @@ knowing the game. The harness sees "a door" or "a milestone", never a game's
 own names for things. Every field is optional; a player must cope with any of
 them missing.
 
-    context    "overworld" | "dialogue" | "menu" | "battle"
-               what the game is waiting for right now
+    context    "overworld" | "dialogue" | "menu" | "battle" | "busy"
+               what the game is waiting for right now; "busy" means it is not
+               taking movement input (a transition, a cutscene, or a menu the
+               adapter cannot describe)
     map        an id for the current map; it changes when the player goes through a door
     position   [x, y] of the player on the current map
     facing     "UP" | "DOWN" | "LEFT" | "RIGHT"
@@ -19,6 +21,8 @@ them missing.
                  role "person"     someone to talk to (stand next to, face, press the talk key)
                  role "milestone"  something that marks progress
                  role "item"       something to pick up
+                 role "object"     something on the map that blocks the way and may
+                                   react to the talk key (the adapter cannot tell more)
                ids are stable within a run so a planner can name them
     dialogue   {"text"} while context is "dialogue"
     menu       {"prompt", "options": [str], "cursor": int} while context is "menu"
@@ -26,11 +30,17 @@ them missing.
                  {"options": [{"id", "kind", "uses_left"?, "power"?}], "cursor": int,
                   "opponent": {"hp", "max_hp", "catchable"?}}
                  kind is "attack", "catch", "item", or "flee"
+               an adapter that cannot yet drive the battle menus may instead fill
+                 {"active": {"hp", "max_hp", "level"}, "moves": [{"id", "kind", "power", "uses_left"}],
+                  "opponent": {...}}
+               which describes the fight without `options`; a harness then cannot
+               pick a move and only confirms
 
 Keys the harness uses to act come from `legal_actions()`. The adapter says
 which button does what through `controls` (all optional):
 
-    controls   {"up", "down", "left", "right", "confirm", "cancel"} -> action key
+    controls   {"up", "down", "left", "right", "confirm", "cancel", "wait"} -> action key
+               ("wait" is an action that presses nothing, if the adapter has one)
 """
 
 DEFAULT_WALKABLE = "."

@@ -28,8 +28,8 @@ def state_of(messages):
     return {}
 
 
-def planner_model(plan):
-    """Planner replies come from `plan(state)`; dialogue and battle get fixed replies."""
+def planner_model(plan, text=json.dumps):
+    """Planner replies are `text(plan(state))`; dialogue and battle get fixed replies."""
 
     def reply(messages):
         first = messages[0].content
@@ -37,7 +37,7 @@ def planner_model(plan):
             return "- The milestone is in the southeast corner of town."
         if first.startswith("You choose the next move"):
             return '{"why": "weaken it first", "option": "tackle"}'
-        return json.dumps(plan(state_of(messages)))
+        return text(plan(state_of(messages)))
 
     return ScriptedModel(reply)
 
@@ -120,6 +120,24 @@ def test_catches_without_knocking_out(tmp_path):
     assert choices == ["tackle", "tackle", "ball"]
 
 
+def test_planner_reads_the_first_object_of_a_run_on_reply(tmp_path):
+    # qwen2.5:7b closes the object early and keeps writing; that used to cost every call
+    def run_on(plan):
+        return json.dumps(plan).replace(', "intention"', '}, "intention"', 1)
+
+    harness = CrystalHarness(planner_model(to_milestone, run_on))
+    results = run(run_dir=tmp_path / "run", env=GridWorld(), player=harness, goal=MILESTONE, budgets=Budgets(max_steps=60))
+    assert results[0].success
+
+
+def test_an_unusable_reply_is_shown_back_to_the_planner(tmp_path):
+    replies = iter(["go to the door"])
+    model = planner_model(to_milestone, lambda plan: next(replies, json.dumps(plan)))
+    run(run_dir=tmp_path / "run", env=GridWorld(), player=CrystalHarness(model), goal=MILESTONE, budgets=Budgets(max_steps=60))
+    assert "could not be used: go to the door" in model.calls[1].messages[1]["content"]
+    assert "could not be used" not in model.calls[2].messages[1]["content"]
+
+
 def test_stuck_ladder_climbs_to_deep_think_and_help(tmp_path):
     model = planner_model(lambda state: {"why": "try the wall", "tool": "press", "args": {"key": "LEFT"}, "intention": "leave"})
     run(run_dir=tmp_path / "run", env=GridWorld(), player=CrystalHarness(model), goal=MILESTONE, budgets=Budgets(max_steps=14))
@@ -166,6 +184,85 @@ def test_visual_mode_offers_only_press(tmp_path):
     assert "go_to" not in system and "- press" in system
 
 
+def test_busy_waits_without_calling_the_model(tmp_path):
+    from environments.protocol import Observation, Press
+
+    model = planner_model(to_milestone)
+    harness = CrystalHarness(model, busy_wait_limit=2)
+    harness.start_trial(MILESTONE.text)
+    state = {"context": "busy"}
+    legal = [Press(k) for k in ("UP", "DOWN", "LEFT", "RIGHT", "A", "B", "WAIT")]
+    busy = Observation(ObservationMode.STRUCTURED, 0, None, {**state, "controls": {"wait": "WAIT"}})
+    keys = [harness.decide(busy, legal).action.key for _ in range(3)]
+    assert keys == ["WAIT", "WAIT", "B"] and model.calls == []
+
+
+def test_battle_uses_the_adapters_keys_when_given():
+    from environments.protocol import Observation, Press
+
+    battle = {
+        "options": [
+            {"id": "tackle", "kind": "attack", "power": 35, "uses_left": 35, "keys": ["A", "A"]},
+            {"id": "growl", "kind": "status", "power": 0, "uses_left": 40, "keys": ["A", "RIGHT", "A"]},
+        ],
+        "opponent": {"hp": 18, "max_hp": 18, "catchable": False},
+    }
+    model = ScriptedModel(lambda messages: '{"why": "lower its attack", "option": "growl"}')
+    harness = CrystalHarness(model)
+    harness.start_trial("win")
+    legal = [Press(k) for k in ("UP", "DOWN", "LEFT", "RIGHT", "A", "B")]
+    observation = Observation(ObservationMode.STRUCTURED, 0, None, {"context": "battle", "battle": battle})
+    assert [harness.decide(observation, legal).action.key for _ in range(3)] == ["A", "RIGHT", "A"]
+
+
+def test_battle_without_options_just_confirms():
+    from environments.protocol import Observation, Press
+
+    model = ScriptedModel(lambda messages: "{}")
+    harness = CrystalHarness(model)
+    harness.start_trial("win")
+    observation = Observation(ObservationMode.STRUCTURED, 0, None, {"context": "battle", "battle": {"moves": [], "options": []}})
+    assert harness.decide(observation, [Press("A"), Press("B")]).action.key == "A" and model.calls == []
+
+
+def _battle_harness(battle_goal, reply="{}"):
+    from environments.protocol import Press
+
+    model = ScriptedModel(lambda messages: reply)
+    harness = CrystalHarness(model)
+    harness.start_trial("catch it")
+    harness._battle_goal = battle_goal
+    return harness, model, [Press(k) for k in ("UP", "DOWN", "LEFT", "RIGHT", "A", "B")]
+
+
+def test_catch_backs_out_when_every_option_is_ruled_out():
+    from environments.protocol import Observation
+
+    battle = {
+        "options": [
+            {"id": "tackle", "kind": "attack", "power": 35, "uses_left": 35},
+            {"id": "ball", "kind": "catch", "uses_left": 0},
+        ],
+        "opponent": {"hp": 5, "max_hp": 18, "catchable": True},
+    }
+    harness, model, legal = _battle_harness("catch")
+    decision = harness.decide(Observation(ObservationMode.STRUCTURED, 0, None, {"context": "battle", "battle": battle}), legal)
+    assert decision.action.key == "B" and model.calls == []
+
+
+def test_catch_without_a_catch_option_fights_instead():
+    from environments.protocol import Observation
+
+    battle = {
+        "options": [{"id": "tackle", "kind": "attack", "power": 35, "uses_left": 35, "keys": ["A", "A"]}],
+        "opponent": {"hp": 5, "max_hp": 18, "catchable": True},
+    }
+    harness, model, legal = _battle_harness("catch")
+    decision = harness.decide(Observation(ObservationMode.STRUCTURED, 0, None, {"context": "battle", "battle": battle}), legal)
+    assert decision.action.key == "A"
+    assert [e["type"] for e in decision.trace["events"]][:2] == ["battle_goal_unavailable", "battle"]
+
+
 def test_malformed_args_are_failures_not_crashes(tmp_path):
     bad = iter([
         {"why": "x", "tool": "go_to", "args": "door_to_town"},
@@ -177,3 +274,12 @@ def test_malformed_args_are_failures_not_crashes(tmp_path):
     records = records_of(tmp_path / "run")
     assert events(records, "plan")[0]["error"].startswith("reply was not")
     assert "whole number" in events(records, "tool_end")[0]["result"]
+
+
+def test_coordinates_of_a_door_are_treated_as_the_door():
+    # FireRed stairs only work when you keep walking into them; a planner that
+    # gives the stairs' tile instead of their id must still get that handling
+    harness = CrystalHarness(ScriptedModel(lambda messages: "{}"))
+    state = {"places": [{"id": "door_0", "role": "door", "position": [10, 2]}]}
+    assert harness._target({"position": [10, 2]}, state) == ((10, 2), "door")
+    assert harness._target({"position": [3, 3]}, state) == ((3, 3), "")
