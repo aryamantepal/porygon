@@ -213,6 +213,8 @@ def test_experiment_configs_without_examples_are_zero_shot():
     model = ScriptedModel(lambda messages: "")
     for path in ROOT.glob("experiments/*.json"):
         agent = json.loads(path.read_text())["agent"]
+        if agent.get("backbone") and not Path(agent["backbone"]).is_file():
+            continue  # a generated backbone; tests/test_brief.py covers its config
         assert make_player(agent, model).mechanisms()["few_shot"] is ("examples" in agent), path.name
 
 

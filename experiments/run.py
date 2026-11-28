@@ -66,6 +66,15 @@ def memory(spec: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def read_backbone(path: Path) -> dict[str, Any]:
+    if not path.is_file():
+        raise FileNotFoundError(
+            f"backbone {path} does not exist. A generated backbone has to be made from its brief first, once:\n"
+            f"  python -m evaluation.brief <brief.txt> --model <spec.json or model id> --out {path}"
+        )
+    return json.loads(path.read_text())
+
+
 def make_player(spec: dict[str, Any], model: ChatModel):
     name = spec["name"]
     examples = make_examples(spec)
@@ -124,7 +133,7 @@ def make_player(spec: dict[str, Any], model: ChatModel):
 
         return CrystalHarness(
             model,
-            backbone=json.loads(Path(spec["backbone"]).read_text()) if spec.get("backbone") else None,
+            backbone=read_backbone(Path(spec["backbone"])) if spec.get("backbone") else None,
             knowledge_path=Path(spec["knowledge_path"]) if spec.get("knowledge_path") else None,
             summarize_dialogue=spec.get("summarize_dialogue", True),
             stuck_ladder=spec.get("stuck_ladder", True),
@@ -200,9 +209,9 @@ def main() -> None:
     spec = json.loads(args.config.read_text())
     hashes = file_hashes(spec)  # before anything can write to those files
 
-    env = make_environment(spec["environment"])
     model = make_model(spec["model"])
-    player = make_player(spec["agent"], model)
+    player = make_player(spec["agent"], model)  # before the environment: a missing backbone should not cost a ROM load
+    env = make_environment(spec["environment"])
     goal = goal_from_dict(spec["goal"])
     run_dir = args.run_dir or Path("runs") / f"{time.strftime('%Y%m%d-%H%M%S')}-{goal.task_id}-{player.name}"
     results = run(

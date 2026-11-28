@@ -67,6 +67,56 @@ class Journal:
         return rows
 
 
+NAME = re.compile(r"[a-z][a-z0-9_]*")
+
+
+def validate_backbone(data: Any) -> list[str]:
+    """Every way `data` fails to be a backbone: {"nodes": {id: {"role", "about"}}, "edges": [[a, relation, b]],
+    "recipes": {name: text}}. An edge joins two nodes that exist. Ids, relations, and recipe names are snake_case.
+    An optional "source" block (how a generated file was made; see `evaluation/brief.py`) is not checked here.
+    The constructor above stays lenient so a hand-written file with a loose edge still loads."""
+    if not isinstance(data, dict):
+        return ["the backbone must be a JSON object"]
+    problems = [f"unknown key {key!r} (allowed: nodes, edges, recipes)" for key in data if key not in ("nodes", "edges", "recipes", "source")]
+    nodes, edges, recipes = data.get("nodes"), data.get("edges"), data.get("recipes")
+    if not isinstance(nodes, dict) or not nodes:
+        problems.append('"nodes" must be an object with at least one node')
+        nodes = {}
+    if not isinstance(edges, list):
+        problems.append('"edges" must be a list of [a, relation, b]')
+        edges = []
+    if not isinstance(recipes, dict):
+        problems.append('"recipes" must be an object of name: text')
+        recipes = {}
+    for node_id, node in nodes.items():
+        if not NAME.fullmatch(node_id):
+            problems.append(f"node id {node_id!r} must be snake_case (a-z, 0-9, _)")
+        if not isinstance(node, dict) or set(node) != {"role", "about"}:
+            problems.append(f'node {node_id!r} must be an object with exactly "role" and "about"')
+        elif not all(isinstance(node[key], str) and node[key].strip() for key in node):
+            problems.append(f'node {node_id!r}: "role" and "about" must be non-empty strings')
+    seen = set()
+    for edge in edges:
+        if not (isinstance(edge, list) and len(edge) == 3 and all(isinstance(part, str) for part in edge)):
+            problems.append(f"edge {edge!r} must be a list of three strings [a, relation, b]")
+            continue
+        a, relation, b = edge
+        problems += [f"edge {edge!r}: unknown node {end!r}" for end in (a, b) if end not in nodes]
+        if not NAME.fullmatch(relation):
+            problems.append(f"edge {edge!r}: relation must be snake_case")
+        if a == b:
+            problems.append(f"edge {edge!r} joins a node to itself")
+        if tuple(edge) in seen:
+            problems.append(f"edge {edge!r} appears twice")
+        seen.add(tuple(edge))
+    for name, text in recipes.items():
+        if not NAME.fullmatch(name):
+            problems.append(f"recipe name {name!r} must be snake_case")
+        if not isinstance(text, str) or not text.strip():
+            problems.append(f"recipe {name!r} must be a non-empty string")
+    return problems
+
+
 class KnowledgeGraph:
     """{"nodes": {id: {"role", "about", "notes": [], "lessons": []}}, "edges": [[a, relation, b]],
     "recipes": {name: text}, "runs": [summary]}"""

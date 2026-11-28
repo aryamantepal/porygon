@@ -56,6 +56,8 @@ def test_experiment_configs_parse():
         goal_from_dict(spec["goal"])
         Budgets(**spec["budgets"])
         model = make_model(spec["model"])
+        if spec["agent"].get("backbone") and not Path(spec["agent"]["backbone"]).is_file():
+            continue  # a generated backbone; tests/test_brief.py covers its config
         make_player(spec["agent"], model)
         if spec["environment"]["name"] in ("lineworld", "gridworld"):
             make_environment(spec["environment"])
