@@ -41,7 +41,7 @@ The runner calls one interface: observe, decide, step, until the goal is met or 
 
 - **Direct policy** — the current snapshot and the legal actions go in; one action comes out. The request includes no earlier turns, reflections, skills, or curriculum. Disable thinking and any other hidden trace so the output is the decision. A typed-decision model uses this same player: one pass, a choice among the actions. Ablation against ReAct is the comparison.
 - **ReAct** — reason, act, observe, repeat.
-- **Reflexion** — ReAct, plus verbal reflections on failures that later decisions can read. Ablation: reflections off.
+- **Reflexion** — ReAct, plus verbal reflections on failures that later decisions can read. Ablation: reflections off. Optional cross-trial insights (ExpeL) and retrieval of earlier successful trials; each is a switch, off by default.
 - **Voyager** — automatic curriculum, skill library, and iterative prompting. The curriculum proposes the next goal from progress and state. The library stores, retrieves, and composes skills. Iterative prompting revises a skill using environment feedback, execution errors, and self-verification. Each of those three can be turned off.
 - **Continual Harness** — one model acting through a minimal interface, plus a Refiner that edits the agent's own harness (guidance, skills, memory) mid-trial on a code schedule. Each refinement pass can be turned off. A trial starts from an empty harness unless the config carries one over. Skills are programs the adapter can execute, as in Voyager, and a skill that does not parse against the legal actions is rejected.
 

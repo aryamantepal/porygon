@@ -31,7 +31,7 @@ the first few entries so the prompt stays inside the model's context.
 from __future__ import annotations
 
 import json
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
 
@@ -116,7 +116,7 @@ class Examples:
 
     def trajectories_text(self) -> str:
         """ReAct: whole trajectories in the Thought / Action / Observation form of the live loop."""
-        return "\n\n".join(_trajectory(t) for t in self.trajectories[:MAX_TRAJECTORIES])
+        return render_trajectories(self.trajectories[:MAX_TRAJECTORIES])
 
     def reflections_text(self) -> str:
         """Reflexion: a past attempt, then the plan written after it."""
@@ -133,11 +133,16 @@ class Examples:
         return "\n\n".join(blocks)
 
 
-def _trajectory(trajectory: ExampleTrajectory) -> str:
+def render_trajectories(trajectories: Sequence[ExampleTrajectory], max_turns: int = MAX_TURNS) -> str:
+    """Whole trajectories in the Thought / Action / Observation form of the live loop, showing at most `max_turns` turns of each."""
+    return "\n\n".join(_trajectory(t, max_turns) for t in trajectories)
+
+
+def _trajectory(trajectory: ExampleTrajectory, max_turns: int = MAX_TURNS) -> str:
     lines = [f"Goal: {trajectory.goal}"]
-    for index, turn in enumerate(trajectory.turns[:MAX_TURNS], start=1):
+    for index, turn in enumerate(trajectory.turns[:max_turns], start=1):
         lines += [f"Observation {index}: {_observation(turn.observation)}", f"Thought {index}: {turn.thought}", f"Action {index}: {turn.action}"]
-    omitted = len(trajectory.turns) - MAX_TURNS
+    omitted = len(trajectory.turns) - max_turns
     if omitted > 0:
         lines.append(f"({omitted} later turns omitted)")
     if trajectory.outcome:

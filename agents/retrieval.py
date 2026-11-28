@@ -42,7 +42,9 @@ and reflects on memories; none of that is here.
 from __future__ import annotations
 
 import math
+import re
 import statistics
+from collections import Counter
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
@@ -228,3 +230,14 @@ def _z(values: Sequence[float], clip: float | None = None) -> list[float]:
 def trace_event(store: str, query: str, rows: Sequence[Ranked]) -> dict[str, Any]:
     """The retrieval event a trace carries: every candidate with the numbers that decided it."""
     return {"type": "retrieval", "store": store, "query": query, "candidates": [row.event() for row in rows]}
+
+
+def words(text: str) -> Counter:
+    """Bag of lowercase words and numbers, underscores as spaces."""
+    return Counter(re.findall(r"[a-z0-9]+", text.lower().replace("_", " ")))
+
+
+def cosine(a: Counter, b: Counter) -> float:
+    dot = sum(a[w] * b[w] for w in a)
+    norm = math.sqrt(sum(v * v for v in a.values())) * math.sqrt(sum(v * v for v in b.values()))
+    return dot / norm if norm else 0.0

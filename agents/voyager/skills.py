@@ -57,9 +57,7 @@ skill without parameters parses exactly as before.
 from __future__ import annotations
 
 import json
-import math
 import re
-from collections import Counter
 from collections.abc import Collection, Generator, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from pathlib import Path
@@ -67,7 +65,7 @@ from typing import Any, Union
 
 from agents.harness import tools as navigator
 from agents.harness.calls import parse_target
-from agents.retrieval import Policy, Ranked, Stats
+from agents.retrieval import Policy, Ranked, Stats, cosine as _cosine, words as _words
 from environments.protocol import Action, Observation, Press
 
 MAX_PRESSES = 200  # per program run, so a bad loop cannot eat the whole budget
@@ -686,13 +684,3 @@ class SkillLibrary:
                     self.stats.pop(name, None)
                     continue
                 self.skills[name] = replace(skill, program=program)
-
-
-def _words(text: str) -> Counter:
-    return Counter(re.findall(r"[a-z0-9]+", text.lower().replace("_", " ")))
-
-
-def _cosine(a: Counter, b: Counter) -> float:
-    dot = sum(a[w] * b[w] for w in a)
-    norm = math.sqrt(sum(v * v for v in a.values())) * math.sqrt(sum(v * v for v in b.values()))
-    return dot / norm if norm else 0.0

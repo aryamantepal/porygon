@@ -93,6 +93,13 @@ def make_player(spec: dict[str, Any], model: ChatModel):
             memory_size=spec.get("memory_size", 3),
             retry_illegal_action=spec.get("retry_illegal_action", False),
             examples=examples,
+            insights=spec.get("insights", False),
+            max_insights=spec.get("max_insights", 10),
+            insight_turns=spec.get("insight_turns", 20),
+            retrieve_trajectories=spec.get("retrieve_trajectories", False),
+            retrieve_k=spec.get("retrieve_k", 1),
+            retrieved_turns=spec.get("retrieved_turns", 8),
+            trajectories_kept=spec.get("trajectories_kept", 10),
             **interface(spec),
         )
     if name == "voyager":

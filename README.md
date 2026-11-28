@@ -59,6 +59,8 @@ Players are interchangeable. They receive observations and return actions. They 
 
 **Reflexion.** ReAct plus a verbal review after each failed trial. The review is stored as text that later decisions can read.
 
+Reflexion also takes two off-by-default switches from [ExpeL](https://arxiv.org/abs/2308.10144), for runs of several trials. `"insights": true` adds a step after every trial, success or failure: the model compares the trial with a stored trial of the opposite outcome (or, for a first success, with the successes so far) and replies with `ADD`, `EDIT`, `AGREE`, and `REMOVE` operations on a short, capped list of rules of thumb. Each insight has an importance count (`ADD` starts at 2, `AGREE` and `EDIT` add 1, `REMOVE` takes 1, or 3 when the list is full) and is dropped at zero. Later trials read the list in the system prompt, with or without reflections (`"reflections": false` is the insights-only ablation). `"retrieve_trajectories": true` puts the most similar earlier successful trial of the same run in the prompt as a worked example. The environment's verdict decides success and failure, every operation (raw reply, parsed, applied or rejected) is logged in the trial's review, and each decision logs which insights and trials were in context. Both add context a small model has little of, so the list, the turns shown, and `retrieve_k` are capped. Deviations from ExpeL are in [`agents/reflexion/insights.py`](agents/reflexion/insights.py) and [`agents/reflexion/trajectories.py`](agents/reflexion/trajectories.py).
+
 **Voyager.** The lifelong-learning loop from Voyager, retargeted at this environment:
 
 - An **automatic curriculum** proposes the next goal from the agent's progress and state.
@@ -140,6 +142,7 @@ PORYGON_BATTLE_STATE=saves/battle.state
 - [Voyager: An Open-Ended Embodied Agent with Large Language Models](https://voyager.minedojo.org/)
 - [ReAct: Synergizing Reasoning and Acting in Language Models](https://arxiv.org/abs/2210.03629)
 - [Reflexion: Language Agents with Verbal Reinforcement Learning](https://arxiv.org/abs/2303.11366)
+- [ExpeL: LLM Agents Are Experiential Learners](https://arxiv.org/abs/2308.10144) ([code](https://github.com/LeapLabTHU/ExpeL))
 - [Teaching a Local LLM to Play Pokémon Crystal on a DGX Spark](https://projects.playtesting.dev/posts/pokemon-crystal/)
 - [Continual Harness](https://arxiv.org/abs/2605.09998) ([code](https://github.com/sethkarten/continual-harness))
 

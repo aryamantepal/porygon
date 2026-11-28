@@ -130,7 +130,7 @@ class ReAct:
         if self.tools:
             return self._decide_tools(observation, legal_actions)
         snapshot, images = render_observation(observation)
-        self._turns.append(Turn(observation=_history_text(observation)))
+        self._turns.append(Turn(observation=history_text(observation)))
         n = len(self._turns)
         thought, action_text, action, calls = self._ask(
             snapshot,
@@ -284,7 +284,7 @@ class ReAct:
         offer = self._offer(observation, legal_actions)
         snapshot, images = render_observation(observation)
         notes, self._notes = self._notes, []
-        self._turns.append(Turn(observation="\n".join([*notes, _history_text(observation)])))
+        self._turns.append(Turn(observation="\n".join([*notes, history_text(observation)])))
         turn = self._turns[-1]
         legal_keys = [action.key for action in legal_actions]
         reasons: list[str] = []
@@ -378,7 +378,7 @@ def _split(output: str) -> tuple[str, str | None]:
     return thought, match.group(1).strip().split("\n")[0]
 
 
-def _history_text(observation: Observation) -> str:
+def history_text(observation: Observation) -> str:
     snapshot, _ = render_observation(observation)
     if observation.state is None:
         return "(screen only; not kept in history)"
