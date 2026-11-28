@@ -67,6 +67,7 @@ from typing import Any, Union
 
 from agents.harness import tools as navigator
 from agents.harness.calls import parse_target
+from agents.retrieval import Policy, Ranked, Stats
 from environments.protocol import Action, Observation, Press
 
 MAX_PRESSES = 200  # per program run, so a bad loop cannot eat the whole budget
@@ -546,11 +547,20 @@ class SkillLibrary:
     `agents/voyager/player.py`, `test_skills`). `record_use` counts a program's
     use of a skill and promotes a candidate that succeeds with arguments it has
     not succeeded with before. Retrieval scales a candidate's score down.
+
+    With a `policy` (`utility_retrieval`, `memory_decay`; `agents/retrieval.py`) each
+    skill also has `Stats`, and `retrieve_ranked` retrieves in two phases and
+    explains itself. `clock` is the agent's step count; a library loaded from a
+    file starts it at the last access the file recorded, so time passes only while
+    the agent plays. Without a policy nothing here changes.
     """
 
-    def __init__(self, path: Path | None = None) -> None:
+    def __init__(self, path: Path | None = None, policy: Policy | None = None) -> None:
         self.path = path
+        self.policy = policy if policy is not None and policy.active else None
         self.skills: dict[str, Skill] = {}
+        self.stats: dict[str, Stats] = {}
+        self.clock = 0
         if path is not None and path.exists():
             self._load(path)
 
@@ -571,6 +581,8 @@ class SkillLibrary:
             status=status, uses=tested, successes=tested, proven_with=proven,
         )
         self.skills[program.name] = skill
+        if self.policy is not None:
+            self.stats[program.name] = self.policy.fresh(self.clock)  # a new version starts over
         if self.path is not None:
             self._save(self.path)
         return skill
@@ -605,6 +617,37 @@ class SkillLibrary:
         scored.sort(key=lambda pair: (-pair[0], pair[1]))
         return [self.skills[name] for _, name in scored[:k]]
 
+    def retrieve_ranked(self, query: str, k: int = 5) -> tuple[list[Skill], list[Ranked]]:
+        """`retrieve` under a policy: phase 1 by the cosine below, phase 2 by utility, retention as a multiplier.
+
+        Returns the skills shown and every candidate with its similarity, utility, retention, and score.
+        Each skill shown is recalled (its retention restarts and its strength grows).
+        """
+        words = _words(query)
+        entries = []
+        for name, s in sorted(self.skills.items()):
+            similarity = _cosine(words, _words(f"{s.program.name} {s.description} {s.task}"))
+            entries.append((name, similarity * CANDIDATE_WEIGHT if s.status == "candidate" else similarity, self._stats(name)))
+        rows = self.policy.rank(entries, k, self.clock)
+        self.policy.recall_shown(rows, self.stats, self.clock)
+        if self.path is not None and self.policy.decay:
+            self._save(self.path)
+        return [self.skills[row.key] for row in rows if row.shown], rows
+
+    def credit(self, name: str, reward: float) -> tuple[float, float] | None:
+        """Move the skill's Q toward `reward` (0 or 1). Returns (old, new), or None when utility is off or the skill is gone."""
+        if self.policy is None or not self.policy.utility or name not in self.skills:
+            return None
+        change = self.policy.update(self._stats(name), reward)
+        if self.path is not None:
+            self._save(self.path)
+        return change
+
+    def _stats(self, name: str) -> Stats:
+        if name not in self.stats:
+            self.stats[name] = self.policy.fresh(self.clock)
+        return self.stats[name]
+
     def _save(self, path: Path) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
         data = {}
@@ -612,15 +655,25 @@ class SkillLibrary:
             data[name] = {"source": s.program.source, "description": s.description, "task": s.task, "version": s.version}
             if s.status != "verified" or s.uses:  # the extra fields appear only once a skill is being tested
                 data[name] |= {"status": s.status, "uses": s.uses, "successes": s.successes, "proven_with": list(s.proven_with)}
+            if self.policy is not None:  # only while a switch is on
+                data[name]["memory"] = self._stats(name).to_dict(utility=self.policy.utility, decay=self.policy.decay)
         path.write_text(json.dumps(data, indent=2) + "\n")
 
     def _load(self, path: Path) -> None:
-        for name, data in json.loads(path.read_text()).items():
+        saved = json.loads(path.read_text())
+        for name, data in saved.items():
             program = Program(name, (), data["source"])  # body is re-parsed against legal keys on first use
             self.skills[name] = Skill(
                 program, data["description"], data["task"], data["version"],
                 data.get("status", "verified"), data.get("uses", 0), data.get("successes", 0), tuple(data.get("proven_with", ())),
             )
+        if self.policy is not None:
+            self.clock = max((d.get("memory", {}).get("last_access", 0) for d in saved.values()), default=0)
+            for name, data in saved.items():
+                stats = self.policy.fresh(self.clock)
+                for field_name, value in data.get("memory", {}).items():
+                    setattr(stats, field_name, value)
+                self.stats[name] = stats
 
     def bind(self, legal_keys: Sequence[str], *, tools: bool = False, parameters: bool = False) -> None:
         """Parse loaded skills against this environment's legal actions."""
@@ -630,6 +683,7 @@ class SkillLibrary:
                     program = parse(skill.program.source, legal_keys, tools=tools, parameters=parameters)
                 except SkillError:
                     del self.skills[name]
+                    self.stats.pop(name, None)
                     continue
                 self.skills[name] = replace(skill, program=program)
 

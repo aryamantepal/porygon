@@ -60,6 +60,28 @@ Mechanisms, each switchable for ablations:
   use of it, not a new version; changed source is a new, untested candidate.
   The test is weaker than SkillWeaver's: the critic judges the whole program's
   final state, not the skill alone, and it runs on whatever state the world is in.
+- utility_retrieval (MemRL, Zhang et al. 2026, arXiv:2601.03192; needs the library):
+  retrieval keeps the bag-of-words cosine as phase 1 (the top `candidates`), then
+  ranks those by a learned utility Q per skill, `Q <- Q + alpha * (r - Q)`
+  (`agents/retrieval.py`). The reward is per program run, for each library skill the
+  program called: r = 1 when the program succeeded by the test this player already
+  uses, and r = 0 when it did not. The test is the critic's acceptance with
+  self_verification on (a model reading the before and after snapshots, not the
+  program's own claim), and "ran without an error" with it off; a run with an
+  execution error is always 0. A program a battle interrupted is not scored, and a
+  skill the program did not call is not scored, even if it was in the prompt. This
+  is the agent's signal. Agents cannot call `get_progress`, so it is a stand-in for
+  progress read from the game, and a critic that accepts too easily rewards skills
+  that did nothing. A new version of a skill starts at `q_init` again.
+- memory_decay (MemoryBank, Zhong et al. 2023, arXiv:2305.10250; needs the library):
+  a skill's retention is `exp(-t / S)`, t the decisions since it was added or last
+  shown in a prompt, S its strength, multiplied by `growth` on each showing. A skill
+  below `threshold` is not retrieved, and retention multiplies the cosine. Both
+  switches log a `retrieval` event with each candidate's similarity, utility,
+  retention, and score, and a `utility_update` event per reward. With a
+  `library_path` the Q, strength, and last access of each skill are saved beside
+  it, and only while a switch is on. Deviations from both papers are listed in
+  `agents/retrieval.py`.
 """
 
 from __future__ import annotations
@@ -78,6 +100,7 @@ from agents.harness.calls import check_interface
 from agents.harness.specialists import Specialists
 from agents.models import ChatModel, Message, ModelCall
 from agents.protocol import Decision, Review, TrialOutcome
+from agents.retrieval import MemoryParams, Policy, trace_event
 from agents.voyager import prompts
 from agents.voyager.skills import Program, Run, SkillError, SkillInterrupted, SkillLibrary, execute, parse_all
 from environments.protocol import Action, Observation, Press
@@ -141,14 +164,21 @@ class Voyager:
         specialists: bool = False,
         skill_parameters: bool = False,
         test_skills: bool = False,
+        utility_retrieval: bool = False,
+        memory_decay: bool = False,
+        memory_params: MemoryParams | None = None,
     ) -> None:
         self.model = model
         self.tools = check_interface(action_interface, specialists)
         self.specialists = specialists
         if test_skills and not (skill_parameters and skill_library):
             raise ValueError("test_skills only works with skill_parameters and the skill library: only a skill with parameters is tested")
+        if (utility_retrieval or memory_decay) and not skill_library:
+            raise ValueError("utility_retrieval and memory_decay rank the skill library, so they need skill_library")
         self.skill_parameters = skill_parameters
         self.test_skills = test_skills
+        self.utility_retrieval, self.memory_decay = utility_retrieval, memory_decay
+        self.policy = Policy(utility=utility_retrieval, decay=memory_decay, params=memory_params)
         self._specialists = Specialists(model)
         self._example_programs = examples.programs_text() if examples else ""
         self.curriculum = curriculum
@@ -158,7 +188,8 @@ class Voyager:
         self.max_attempts = max_attempts if iterative_prompting else 1
         self.retrieval_k = retrieval_k
         self.max_calls_per_decision = max_calls_per_decision
-        self.library = SkillLibrary(library_path if skill_library else None)
+        self.library = SkillLibrary(library_path if skill_library else None, self.policy)
+        self._clock = self.library.clock  # decisions so far, over the player's life: the time memory_decay counts in
         # The curriculum's memory is lifelong, as in Voyager: it carries across trials.
         self.completed_tasks: list[str] = []
         self.failed_tasks: list[str] = []
@@ -179,6 +210,8 @@ class Voyager:
             "specialists": self.specialists,
             "skill_parameters": self.skill_parameters,
             "test_skills": self.test_skills,
+            "utility_retrieval": self.utility_retrieval,
+            "memory_decay": self.memory_decay,
         }
 
     def start_trial(self, goal: str) -> None:
@@ -199,6 +232,10 @@ class Voyager:
                 name: {"status": s.status, "uses": s.uses, "successes": s.successes, "proven_with": list(s.proven_with)}
                 for name, s in sorted(self.library.skills.items())
             }
+        if self.policy.active:
+            trace["memory"] = {
+                name: stats.to_dict(utility=self.utility_retrieval, decay=self.memory_decay) for name, stats in sorted(self.library.stats.items())
+            }
         return Review(trace=trace)
 
     # One step
@@ -206,6 +243,9 @@ class Voyager:
     def decide(self, observation: Observation, legal_actions: Sequence[Action]) -> Decision:
         keys = [action.key for action in legal_actions]
         self.library.bind(keys, tools=self.tools, parameters=self.skill_parameters)
+        if self.policy.active:
+            self._clock += 1
+            self.library.clock = self._clock
         turn = _Turn()
         while len(turn.calls) < self.max_calls_per_decision:
             if self._special is not None:
@@ -281,8 +321,17 @@ class Voyager:
 
     def _write_program(self, observation: Observation, keys: Sequence[str], turn: _Turn) -> None:
         task = self._task
-        retrieved = self.library.retrieve(f"{task.text} {task.context}", self.retrieval_k) if self.skill_library else []
+        query = f"{task.text} {task.context}"
+        rows = []
+        if not self.skill_library:
+            retrieved = []
+        elif self.policy.active:
+            retrieved, rows = self.library.retrieve_ranked(query, self.retrieval_k)
+        else:
+            retrieved = self.library.retrieve(query, self.retrieval_k)
         turn.events.append({"type": "retrieved_skills", "skills": [s.program.name for s in retrieved]})
+        if self.policy.active:
+            turn.events.append(trace_event("skills", query, rows))
         programs = "\n\n".join(s.shown for s in retrieved) or "(none yet)"
         if self._example_programs:
             programs += "\n\n" + prompts.EXAMPLE_PROGRAMS.format(programs=self._example_programs)
@@ -346,6 +395,8 @@ class Voyager:
             success, critique = not error, ""
         if self.test_skills and not interrupted:
             self._record_uses(execution, success and not error, turn)
+        if self.utility_retrieval and not interrupted:
+            self._credit_skills(execution, success and not error, turn)
         if success:
             self.completed_tasks.append(task.text)
             turn.events.append({"type": "task_completed", "task": task.text})
@@ -431,6 +482,14 @@ class Voyager:
             )
             if promoted:
                 turn.events.append({"type": "skill_promoted", "name": name, "args": json.loads(args), "successes": skill.successes})
+
+    def _credit_skills(self, execution: Execution, success: bool, turn: _Turn) -> None:
+        """MemRL's update for each library skill the run called, once per run: r is 1 when the program succeeded, else 0."""
+        defined = {d.name for d in execution.definitions}
+        for name in dict.fromkeys(n for n, _ in execution.run.calls):
+            change = None if name in defined else self.library.credit(name, float(success))
+            if change is not None:
+                turn.events.append({"type": "utility_update", "store": "skills", "id": name, "reward": float(success), "old": round(change[0], 4), "new": round(change[1], 4)})
 
     def _trace(self, turn: _Turn) -> dict[str, Any]:
         execution = self._execution

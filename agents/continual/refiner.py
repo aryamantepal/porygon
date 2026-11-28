@@ -275,5 +275,5 @@ def _update_memory(harness: HarnessState, edit: Any) -> dict[str, Any]:
         raise Invalid("nothing to update")
     content = text_field(edit, "content", MAX_CONTENT) if "content" in edit else entry.content
     importance = importance_field(edit, entry.importance)
-    entry.content, entry.importance = content, importance
+    harness.revise_memory(entry, content, importance)
     return {"id": entry.id, "evicted": []}

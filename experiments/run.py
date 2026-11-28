@@ -16,6 +16,7 @@ from typing import Any
 
 from agents.examples import Examples
 from agents.models import ChatModel, OllamaChat
+from agents.retrieval import MemoryParams
 from environments.protocol import Environment, ObservationMode
 from evaluation.goals import Goal
 from evaluation.runner import Budgets, run
@@ -53,6 +54,16 @@ def make_examples(spec: dict[str, Any]) -> Examples | None:
 def interface(spec: dict[str, Any]) -> dict[str, Any]:
     """The action-interface switches ReAct, Reflexion, and Voyager share: `"action_interface"` ("buttons" or "tools") and `"specialists"` (tools only)."""
     return {"action_interface": spec.get("action_interface", "buttons"), "specialists": spec.get("specialists", False)}
+
+
+def memory(spec: dict[str, Any]) -> dict[str, Any]:
+    """The retrieval switches Voyager, the Crystal harness, and Continual Harness share: `"utility_retrieval"` (MemRL)
+    and `"memory_decay"` (MemoryBank), plus their tuning keys (`MemoryParams.from_spec`). Both default to off."""
+    return {
+        "utility_retrieval": spec.get("utility_retrieval", False),
+        "memory_decay": spec.get("memory_decay", False),
+        "memory_params": MemoryParams.from_spec(spec),
+    }
 
 
 def make_player(spec: dict[str, Any], model: ChatModel):
@@ -98,6 +109,7 @@ def make_player(spec: dict[str, Any], model: ChatModel):
             examples=examples,
             skill_parameters=spec.get("skill_parameters", False),
             test_skills=spec.get("test_skills", False),
+            **memory(spec),
             **interface(spec),
         )
     if name == "crystal_harness":
@@ -110,6 +122,8 @@ def make_player(spec: dict[str, Any], model: ChatModel):
             summarize_dialogue=spec.get("summarize_dialogue", True),
             stuck_ladder=spec.get("stuck_ladder", True),
             examples=examples,
+            notes_shown=spec.get("notes_shown", 6),
+            **memory(spec),
         )
     if name == "continual":
         from agents.continual import ContinualHarness
@@ -135,6 +149,8 @@ def make_player(spec: dict[str, Any], model: ChatModel):
             harness_path=Path(spec["harness_path"]) if spec.get("harness_path") else None,
             examples=examples,
             skill_parameters=spec.get("skill_parameters", False),
+            skills_shown=spec.get("skills_shown", 6),
+            **memory(spec),
         )
     raise ValueError(f"unknown agent {name!r}")
 

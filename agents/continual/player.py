@@ -63,6 +63,24 @@ Differences from the authors' code, because the setting differs:
   (max 20):`) or in a `call`, not in `go_to`. A Refiner-written skill may declare
   parameters. Off, parameter syntax is rejected and `run_skill` takes only `name`.
   Skills are not tested before they enter the library (that is Voyager's `test_skills`).
+- utility_retrieval (MemRL, Zhang et al. 2026, arXiv:2601.03192) and memory_decay
+  (MemoryBank, Zhong et al. 2023, arXiv:2305.10250), off by default, the math in
+  `agents/retrieval.py`. This store has no query, so phase 1 keeps the order it always
+  had (importance, then recency) and phase 2 ranks the top `utility_candidates` by a
+  learned Q per entry; the prompt shows the top `memory_shown` memories and the top
+  `skills_shown` skills (it shows every skill when the switch is off). The Refiner
+  still sees everything. The reward is read from the state after one tool run (a press
+  or a `run_skill`): r = 1 when the state the player sees (the structured state, or the
+  frame in visual mode) differs from the state the run started in and the run raised
+  no error, else r = 0. Every memory entry in the prompt that led to the run is
+  updated with that r, and so is the skill the run executed. It is the player's own
+  view of the state, not `get_progress`, and a press into a wall is a 0 for every
+  memory that was in the prompt. Under decay a memory's retention is `exp(-t / S)` with
+  t in presses over the player's life, and a memory below `decay_threshold` is not
+  shown, and is the first evicted when the store is full. Skills do not decay.
+  Rewriting an entry's content starts its Q and strength over. `harness_path` saves
+  both only while a switch is on. Events: `retrieval` (every candidate with its
+  similarity, utility, retention, score) and `utility_update`.
 - Few-shot: `examples` tool_calls whose tool is one of ours are shown to the
   agent, and `examples` programs are shown to the Refiner's skills pass as
   language examples. They are not stored in the library.
@@ -93,6 +111,7 @@ from agents.continual.validate import (
 from agents.examples import Examples
 from agents.models import ChatModel, Message, ModelCall
 from agents.protocol import Decision, Review, TrialOutcome
+from agents.retrieval import MemoryParams, Policy, trace_event
 from agents.voyager.skills import Program, Run, SkillError, Tap, execute
 from environments.protocol import Action, Observation
 
@@ -121,6 +140,7 @@ class _Running:
     why: str
     skill: str | None = None
     primed: bool = False
+    shown_memory: tuple[str, ...] = ()  # the memory entries in the prompt that chose this run (utility_retrieval)
 
 
 @dataclass
@@ -159,9 +179,16 @@ class ContinualHarness:
         max_calls_per_decision: int = 10,
         examples: Examples | None = None,
         skill_parameters: bool = False,
+        utility_retrieval: bool = False,
+        memory_decay: bool = False,
+        memory_params: MemoryParams | None = None,
+        skills_shown: int = 6,
     ) -> None:
         self.model = model
         self.skill_parameters = skill_parameters
+        self.utility_retrieval, self.memory_decay = utility_retrieval, memory_decay
+        self.policy = Policy(utility=utility_retrieval, decay=memory_decay, params=memory_params)
+        self.skills_shown = skills_shown
         self.refiner_model = refiner_model
         self.refine_prompt, self.refine_skills, self.refine_memory = refine_prompt, refine_skills, refine_memory
         self.agent_meta_tools = agent_meta_tools
@@ -200,18 +227,21 @@ class ContinualHarness:
             "few_shot": bool(self._example_replies or self._example_programs),
             "thinking": False,
             "skill_parameters": self.skill_parameters,
+            "utility_retrieval": self.utility_retrieval,
+            "memory_decay": self.memory_decay,
         }
 
     def _new_harness(self) -> HarnessState:
         if self._seed is not None:
-            return HarnessState.from_dict(self._seed, max_memory=self.max_memory, max_skills=self.max_skills)
-        return HarnessState(max_memory=self.max_memory, max_skills=self.max_skills)
+            return HarnessState.from_dict(self._seed, max_memory=self.max_memory, max_skills=self.max_skills, policy=self.policy)
+        return HarnessState(max_memory=self.max_memory, max_skills=self.max_skills, policy=self.policy)
 
     def _reset_trial(self, goal: str) -> None:
         self._goal = goal
         self._steps = 0  # presses so far this trial
         self._trajectory: list[dict[str, Any]] = []
         self._last_press: tuple[dict[str, Any], Observation] | None = None
+        self._shown_memory: tuple[str, ...] = ()
         self._running: _Running | None = None
         self._results: list[str] = []
         self._bad_reply: tuple[str, str] | None = None
@@ -360,7 +390,7 @@ class ContinualHarness:
         entry = self.harness.find_memory(args["title"])
         evicted: list[str] = []
         if entry is not None:
-            entry.content, entry.importance, entry.step = args["content"], args["importance"], self._steps
+            self.harness.revise_memory(entry, args["content"], args["importance"], step=self._steps)
             op = "updated"
         else:
             entry, evicted = self.harness.add_memory(args["title"], args["content"], args["importance"], step=self._steps, source="agent")
@@ -454,7 +484,7 @@ class ContinualHarness:
                 label += f" {json.dumps(args['args'])}"
         run = Run()
         steps = execute(program, self.harness.library.programs(), observation, run, None, args.get("args", ()))
-        self._running = _Running(tool, label, program, steps, run, observation, why, skill)
+        self._running = _Running(tool, label, program, steps, run, observation, why, skill, shown_memory=self._shown_memory)
 
     def _advance(self, observation: Observation, turn: _Turn) -> Action | None:
         """The next press of the running tool, or None once it has finished."""
@@ -468,6 +498,7 @@ class ContinualHarness:
             error = str(failure)
         else:
             self._steps += 1
+            self.harness.clock += 1
             entry = {
                 "step": self._steps, "key": action.key, "via": running.label, "why": running.why if running.run.presses == 1 else "",
                 "signature": _signature(observation),
@@ -481,6 +512,8 @@ class ContinualHarness:
 
     def _finish(self, running: _Running, observation: Observation, error: str, turn: _Turn) -> None:
         self._running = None
+        if self.utility_retrieval:
+            self._credit(running, observation, error, turn)
         if running.skill is None and not error:
             return
         change = _state_change(running.start, observation)
@@ -495,6 +528,18 @@ class ContinualHarness:
             self._results.append(f"run_skill {running.label.removeprefix('skill ')}: FAILED after {running.run.presses} presses: {error}")
         else:
             self._results.append(f"run_skill {running.label.removeprefix('skill ')}: finished, {running.run.presses} presses. {change}")
+
+    def _credit(self, running: _Running, observation: Observation, error: str, turn: _Turn) -> None:
+        """MemRL's update after a tool run: r = 1 when the state moved and nothing failed, else 0, for each
+        memory in the prompt that chose the run and for the skill it ran."""
+        reward = float(not error and _signature(running.start) != _signature(observation))
+        keys = [(f"memory:{entry_id}", "memory", entry_id) for entry_id in running.shown_memory]
+        if running.skill is not None:
+            keys.append((f"skill:{running.skill}", "skills", running.skill))
+        for key, store, name in keys:
+            change = self.harness.credit(key, reward)
+            if change is not None:
+                turn.events.append({"type": "utility_update", "store": store, "id": name, "reward": reward, "old": round(change[0], 4), "new": round(change[1], 4)})
 
     def _close_last_press(self, observation: Observation) -> None:
         if self._last_press is None:
@@ -544,9 +589,13 @@ class ContinualHarness:
         if self._results:
             parts.append("### RESULTS FROM PREVIOUS STEP\n" + "\n".join(self._results))
         parts.append("### CURRENT STATE\n" + snapshot)
-        parts.append("### LONG-TERM MEMORY\n" + self.harness.memory_text(self.memory_shown))
+        self.harness.retrieved = {}
+        parts.append("### LONG-TERM MEMORY\n" + self.harness.memory_text(self.memory_shown, rank=True))
         if "run_skill" in self._tool_names():
-            parts.append("### SKILL LIBRARY\n" + self.harness.skill_text())
+            parts.append("### SKILL LIBRARY\n" + self.harness.skill_text(rank=self.skills_shown))
+        self._shown_memory = tuple(row.key for row in self.harness.retrieved.get("memory", ()) if row.shown)
+        for store, rows in self.harness.retrieved.items():
+            turn.events.append(trace_event(store, "", rows))
         if self._streak >= self.repeat_limit and self._last_call is not None:
             tool, args = self._last_call
             turn.events.append({"type": "repeat_note", "call": f"{tool} {args}", "count": self._streak})

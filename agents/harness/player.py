@@ -17,6 +17,28 @@ order, the battle invariants, the backbone-plus-notes knowledge graph, the
 factual end-of-run summary, and the ladder's rungs are from the write-up. It
 publishes no prompts, schemas, or thresholds, so those are ours. Its operator
 console and chat inbox are not built yet.
+
+Two switches, off by default, change how the planner's memory is retrieved
+(math and deviations in `agents/retrieval.py`):
+
+- utility_retrieval (MemRL, Zhang et al. 2026, arXiv:2601.03192): the notes and
+  lessons the agent attached to knowledge nodes are retrieved in two phases. Phase 1
+  is the words each shares with the planner's query (goal, intention, situation) and
+  its node; phase 2 ranks the top `utility_candidates` by a learned Q, and at most
+  `notes_shown` are shown. The reward comes from the navigator, not the model: when a
+  planner decision starts a tool, the notes shown in that prompt get r = 1 if the tool
+  ends "done" and r = 0 if it ends "failed" (including a call that failed to start).
+  A tool the game interrupted (a battle began) is not scored, and neither is a `note`
+  call, which is no tool run. A tool that is "done" may still not have moved the game
+  toward the goal, so this is a weaker signal than progress read from the game, which
+  an agent cannot call. Backbone nodes, edges, and recipes are not scored.
+- memory_decay (MemoryBank, Zhong et al. 2023, arXiv:2305.10250): a note's retention
+  is `exp(-t / S)`, t the decisions since it was written or last shown, S its strength
+  (multiplied by `growth` each showing); below `decay_threshold` it is not shown, and a
+  node's full note list drops a forgotten note before the oldest. The journal's leads
+  decay the same way within a trial. Both log a `retrieval` event with every candidate's
+  similarity, utility, retention, and score, and a `utility_update` event per reward.
+  `knowledge_path` saves the Q and strength of each note only while a switch is on.
 """
 
 from __future__ import annotations
@@ -35,6 +57,7 @@ from agents.harness.specialists import Handled, Specialists
 from agents.harness.stuck import RUNGS, StuckLadder, signature
 from agents.models import ChatModel, Message, ModelCall
 from agents.protocol import Decision, Review, TrialOutcome
+from agents.retrieval import MemoryParams, Policy, trace_event
 from environments.protocol import Action, Observation
 
 
@@ -59,10 +82,18 @@ class CrystalHarness:
         max_calls_per_decision: int = 8,
         busy_wait_limit: int = 6,
         examples: Examples | None = None,
+        utility_retrieval: bool = False,
+        memory_decay: bool = False,
+        memory_params: MemoryParams | None = None,
+        notes_shown: int = 6,
     ) -> None:
         self.model = model
         self._example_replies = examples.tool_calls_text() if examples else ""
-        self.knowledge = KnowledgeGraph(backbone, knowledge_path)
+        self.utility_retrieval, self.memory_decay = utility_retrieval, memory_decay
+        self.policy = Policy(utility=utility_retrieval, decay=memory_decay, params=memory_params)
+        self.notes_shown = notes_shown
+        self.knowledge = KnowledgeGraph(backbone, knowledge_path, self.policy)
+        self._clock = self.knowledge.clock  # decisions over the player's life: the time memory_decay counts in
         self.summarize_dialogue = summarize_dialogue
         self.stuck_ladder = stuck_ladder
         self.intention_ticks = intention_ticks
@@ -81,11 +112,15 @@ class CrystalHarness:
             "knowledge_graph": True,
             "few_shot": bool(self._example_replies),
             "thinking": False,
+            "utility_retrieval": self.utility_retrieval,
+            "memory_decay": self.memory_decay,
         }
 
     def _reset_trial(self, goal: str) -> None:
         self._goal = goal
-        self._journal = Journal()
+        self._journal = Journal(policy=self.policy)
+        self._shown_notes: tuple[str, ...] = ()  # the notes in the last planner prompt
+        self._chosen_notes: tuple[str, ...] = ()  # the notes in the prompt that chose the running planner tool
         self._ladder = StuckLadder()
         self._running: tools.ToolRun | None = None
         self._intention = ""
@@ -116,6 +151,8 @@ class CrystalHarness:
 
     def decide(self, observation: Observation, legal_actions: Sequence[Action]) -> Decision:
         self._tick += 1
+        self._clock += 1
+        self.knowledge.clock = self._clock
         state = observation.state
         keys = tools.controls(state, {action.key for action in legal_actions})
         turn = _Turn()
@@ -145,6 +182,8 @@ class CrystalHarness:
 
     def _start(self, handler: str, tool: str, args: dict, steps: tools.Step, state) -> None:
         self._running = tools.ToolRun(handler, tool, args, steps, state, chosen=handler == "planner")
+        if handler == "planner":
+            self._chosen_notes = self._shown_notes
 
     def _use(self, handled: Handled, turn: _Turn) -> None:
         turn.calls.extend(handled.calls)
@@ -158,6 +197,8 @@ class CrystalHarness:
             return step
         outcome, result = step.outcome, step.result
         self._running = None
+        if running.handler == "planner" and outcome != "interrupted":
+            self._credit_notes(self._chosen_notes, float(outcome == "done"), turn)
         turn.events.append({"type": "tool_end", "handler": running.handler, "tool": running.tool, "args": running.args, "outcome": outcome, "result": result, "presses": running.presses})
         if running.handler == "planner":
             self._stats["tools"] += 1
@@ -219,7 +260,7 @@ class CrystalHarness:
         if self._example_replies:
             system += "\n\n" + prompts.EXAMPLE_REPLIES.format(replies=self._example_replies)
         call = self.model.chat(
-            [Message("system", system), Message("user", self._planner_input(snapshot, state, rung), images)],
+            [Message("system", system), Message("user", self._planner_input(snapshot, state, rung, turn), images)],
             think=RUNGS[rung] == "deep_think",
         )
         turn.calls.append(call)
@@ -245,6 +286,7 @@ class CrystalHarness:
             steps = self._tool_steps(tool, args, observation, keys, legal_actions)
         except tools.ToolError as failure:
             turn.events.append({"type": "tool_end", "handler": "planner", "tool": tool, "args": args, "outcome": "failed", "result": str(failure), "presses": 0})
+            self._credit_notes(self._shown_notes, 0.0, turn)
             self._ladder.record_failure(state, tool, args, str(failure))
             self._stats["tool_failures"] += 1
             return
@@ -270,20 +312,35 @@ class CrystalHarness:
                 turn.events.append({"type": "intention_changed", "from": self._intention, "to": new, "reason": why})
             self._intention, self._intention_age = new, 0
 
-    def _planner_input(self, snapshot: str, state, rung: int) -> str:
+    def _credit_notes(self, keys: tuple[str, ...], reward: float, turn: _Turn) -> None:
+        """MemRL's update for each note the prompt showed: r is 1 when the tool the planner chose finished, 0 when it failed."""
+        for key in keys:
+            change = self.knowledge.credit(key, reward)
+            if change is not None:
+                turn.events.append({"type": "utility_update", "store": "knowledge", "id": key, "reward": reward, "old": round(change[0], 4), "new": round(change[1], 4)})
+
+    def _planner_input(self, snapshot: str, state, rung: int, turn: _Turn) -> str:
         lines = [f"Goal: {self._goal}"]
         if self._intention:
             lines.append(f"Intention: {self._intention} ({self._intention_age}/{self.intention_ticks} turns used)")
             if self._intention_age >= self.intention_ticks:
                 lines.append("This intention has used its turns. Keep it only if you can say why; otherwise choose a new one.")
         lines.append(snapshot)
-        leads = self._journal.recent(6, ("lead",) if self.summarize_dialogue else ("dialogue",))
+        kinds = ("lead",) if self.summarize_dialogue else ("dialogue",)
+        leads = self._journal.recent(6, kinds, now=self._tick)
+        if self.memory_decay:
+            turn.events.append(trace_event("journal", "", self._journal.retrieval(kinds, leads, self._tick)))
+            self._journal.recall(leads, self._tick)
         if leads:
             lines += ["Leads:", *[f"- {e['text']}" for e in leads]]
         recent = self._journal.recent(5, ("tool",))
         if recent:
             lines += ["Recent tool results:", *[f"- {e['text']}" for e in recent]]
-        knowledge = self.knowledge.relevant(f"{self._goal} {self._intention} {json.dumps(_situation(state))}")
+        query = f"{self._goal} {self._intention} {json.dumps(_situation(state))}"
+        knowledge = self.knowledge.relevant(query, notes_shown=self.notes_shown)
+        if self.policy.active:
+            turn.events.append(trace_event("knowledge", query, self.knowledge.last_rows))
+            self._shown_notes = tuple(row.key for row in self.knowledge.last_rows if row.shown)
         if any(knowledge.values()):
             lines.append("What you know: " + json.dumps(knowledge))
         if self._bad_reply is not None:
