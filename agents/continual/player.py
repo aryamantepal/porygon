@@ -260,6 +260,11 @@ class ContinualHarness:
             self.harness = self._new_harness()
         self._reset_trial(goal)
 
+    def next_goal(self, goal: str) -> None:
+        """A chain's next level: the harness (guidance, skills, memory) and the refinement schedule stay; a skill running for the old goal is dropped."""
+        self._goal = goal
+        self._running = None
+
     def end_trial(self, outcome: TrialOutcome) -> Review:
         if self.harness_path is not None:
             self.harness_path.parent.mkdir(parents=True, exist_ok=True)

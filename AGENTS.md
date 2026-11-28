@@ -60,6 +60,8 @@ Every run config records:
 - action space
 - budgets: environment steps, model calls, tokens, wall clock as applicable
 
+A goal may be a chain of levels, each judged from `get_progress()` in order within one trial, and a player's state carries from one level to the next.
+
 Record task success, game progression, environment steps, token usage and cost, recovery, skill reuse, and reliability across repeated trials. Persist prompts, model calls, trajectories, and checkpoints with the run. Ablations are configs for the same runner.
 
 ## Layout

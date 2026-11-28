@@ -43,6 +43,10 @@ def describe(records: list[dict[str, Any]], width: int) -> list[str]:
         if record["kind"] == "trial_end":
             lines.append(f"end     {json.dumps({k: v for k, v in record.items() if k != 'kind'})}")
             continue
+        if record["kind"] == "level":
+            detail = {k: v for k, v in record.items() if k in ("task_id", "steps", "model_calls", "carried_by", "warning")}
+            lines.append(f"level {record['level']} {record['event']} at step {record['step']} {json.dumps(detail)}")
+            continue
         if record["kind"] != "decision":
             continue
         after = record.get("progress") or {}

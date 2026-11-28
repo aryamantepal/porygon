@@ -1,0 +1,71 @@
+{
+  "environment": {
+    "name": "firered",
+    "rom": "roms/firered.gba",
+    "state": "saves/start.state",
+    "mode": "structured"
+  },
+  "agent": {
+    "name": "voyager",
+    "curriculum": true,
+    "skill_library": true,
+    "iterative_prompting": true,
+    "self_verification": true,
+    "max_attempts": 4,
+    "action_interface": "tools",
+    "specialists": true,
+    "skill_parameters": true,
+    "test_skills": true
+  },
+  "model": {
+    "provider": "ollama",
+    "id": "qwen2.5:7b-instruct",
+    "temperature": 0.7,
+    "max_tokens": 768
+  },
+  "goal": {
+    "task_id": "firered-pallet-chain",
+    "chain": [
+      {
+        "task_id": "firered-downstairs",
+        "text": "Leave your bedroom by going down the stairs.",
+        "success": {
+          "map": [
+            4,
+            0
+          ]
+        },
+        "max_steps": 60
+      },
+      {
+        "task_id": "firered-leave-house",
+        "text": "Leave the house and step outside.",
+        "success": {
+          "map": [
+            3,
+            0
+          ]
+        },
+        "max_steps": 60,
+        "note": "UNVERIFIED map id: [3, 0] is the outdoor Pallet Town map (group 3 is the towns-and-routes group in pret/pokefirered map_groups.json; the indoor group 4 holds the house, [4, 0] being 1F as in the downstairs configs). It is not in this repo's data. Confirm with get_progress() on a save standing outside the house before running."
+      },
+      {
+        "task_id": "firered-reach-route-1",
+        "text": "Follow the road north out of town to the first route.",
+        "success": {
+          "map": [
+            3,
+            19
+          ]
+        },
+        "max_steps": 120,
+        "note": "UNVERIFIED map id: [3, 19] is Route 1 (MAP_ROUTE1 in pret/pokefirered, recalled, not in this repo's data). Confirm with get_progress() on saves/route1.state before running."
+      }
+    ]
+  },
+  "budgets": {
+    "max_steps": 240,
+    "max_decisions": 480
+  },
+  "trials": 3
+}

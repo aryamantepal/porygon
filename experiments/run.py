@@ -18,7 +18,7 @@ from agents.examples import Examples
 from agents.models import ChatModel, OllamaChat
 from agents.retrieval import MemoryParams
 from environments.protocol import Environment, ObservationMode
-from evaluation.goals import Goal
+from evaluation.goals import goal_from_dict
 from evaluation.runner import Budgets, run
 
 
@@ -203,7 +203,7 @@ def main() -> None:
     env = make_environment(spec["environment"])
     model = make_model(spec["model"])
     player = make_player(spec["agent"], model)
-    goal = Goal(**spec["goal"])
+    goal = goal_from_dict(spec["goal"])
     run_dir = args.run_dir or Path("runs") / f"{time.strftime('%Y%m%d-%H%M%S')}-{goal.task_id}-{player.name}"
     results = run(
         run_dir=run_dir,
@@ -215,7 +215,10 @@ def main() -> None:
         config={"config_file": str(args.config), "code": code_version(), "files": hashes, "environment": spec["environment"], "model": spec["model"], "agent_config": spec["agent"]},
     )
     for result in results:
-        print(json.dumps({"trial": result.trial, "success": result.success, "reason": result.reason, "steps": result.steps, "invalid": result.invalid_decisions, "model_calls": result.model_calls}))
+        line = {"trial": result.trial, "success": result.success, "reason": result.reason, "steps": result.steps, "invalid": result.invalid_decisions, "model_calls": result.model_calls}
+        if result.levels_reached is not None:
+            line["levels_reached"] = result.levels_reached
+        print(json.dumps(line))
     print(f"run written to {run_dir}")
 
 

@@ -1,0 +1,52 @@
+{
+  "environment": {
+    "name": "gridworld",
+    "mode": "structured"
+  },
+  "agent": {
+    "name": "crystal_harness",
+    "backbone": "experiments/knowledge/gridworld.json",
+    "summarize_dialogue": true,
+    "stuck_ladder": true
+  },
+  "model": {
+    "provider": "ollama",
+    "id": "qwen2.5:7b-instruct",
+    "temperature": 0.7,
+    "max_tokens": 768
+  },
+  "goal": {
+    "task_id": "gridworld-chain",
+    "chain": [
+      {
+        "task_id": "gridworld-talk",
+        "text": "Speak with the person who lives in this house.",
+        "success": {
+          "talked": true
+        },
+        "max_steps": 30
+      },
+      {
+        "task_id": "gridworld-town",
+        "text": "Go through the door to town.",
+        "success": {
+          "map": "town"
+        },
+        "max_steps": 30
+      },
+      {
+        "task_id": "gridworld-milestone",
+        "text": "Reach the milestone in town.",
+        "success": {
+          "milestone": true
+        },
+        "max_steps": 60
+      }
+    ]
+  },
+  "budgets": {
+    "max_steps": 120,
+    "max_decisions": 240
+  },
+  "trials": 3
+}

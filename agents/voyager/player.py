@@ -221,6 +221,14 @@ class Voyager:
         self._special = None
         self._specialists.reset()
 
+    def next_goal(self, goal: str) -> None:
+        """A chain's next level: the library and the completed/failed tasks stay; the curriculum picks a task for the new goal."""
+        self._goal = goal
+        self._task = None
+        self._execution = None
+        self._special = None
+        self._specialists.reset()
+
     def end_trial(self, outcome: TrialOutcome) -> Review:
         trace = {
             "completed_tasks": list(self.completed_tasks),

@@ -56,6 +56,11 @@ class Player(Protocol):
 
     def start_trial(self, goal: str) -> None: ...
 
+    # Optional: `next_goal(goal: str) -> None`. In a chain (evaluation/goals.py) the runner
+    # calls it when a level is met, so the player takes the new goal text and keeps
+    # everything else it learned. A player without it gets `start_trial` instead, and the
+    # run log says its per-trial state was wiped.
+
     def decide(self, observation: Observation, legal_actions: Sequence[Action]) -> Decision: ...
 
     def end_trial(self, outcome: TrialOutcome) -> Review: ...

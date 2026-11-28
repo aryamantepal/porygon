@@ -119,6 +119,11 @@ class ReAct:
         self._turns = []
         self._reset_tools()
 
+    def next_goal(self, goal: str) -> None:
+        """A chain's next level: the history and notes stay; a tool still running for the old goal is dropped."""
+        self._goal = goal
+        self._run = self._run_call = self._run_turn = None
+
     def _reset_tools(self) -> None:
         self._run: tools.ToolRun | None = None
         self._run_call: ToolCall | None = None

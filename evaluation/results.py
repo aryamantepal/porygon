@@ -3,6 +3,8 @@
     uv run python -m evaluation.results runs/ladder1-*
     uv run python -m evaluation.results runs/ladder1-* --json
 
+A chain run (a goal with levels) adds two columns: the mean number of levels
+reached out of the total (`2.3/4`), and how many trials met each level (`3/2/0/0`).
 Success counts come from each trial's outcome. Efficiency is reported over
 successful trials only (presses, frames, model calls, and tokens to the goal),
 so a fast failure never looks efficient. Decision latency is the median over
@@ -37,7 +39,7 @@ def summarize(run_dir: Path) -> dict[str, Any]:
     def median(values):
         return statistics.median(values) if values else None
 
-    return {
+    row = {
         "run": run_dir.name,
         "task": config.get("task_id"),
         "agent": config.get("agent"),
@@ -54,6 +56,13 @@ def summarize(run_dir: Path) -> dict[str, Any]:
         "decision_seconds": median(latencies),
         "dirty_code": (config.get("code") or {}).get("dirty"),
     }
+    chain = (config.get("goal") or {}).get("chain")
+    if chain:
+        reached = [o.get("levels_reached", 0) for o in outcomes]
+        row["levels_total"] = len(chain)
+        row["levels_reached_mean"] = sum(reached) / len(reached) if reached else None
+        row["level_successes"] = [sum(bool(o.get("levels") and len(o["levels"]) > i and o["levels"][i]["met"]) for o in outcomes) for i in range(len(chain))]
+    return row
 
 
 def table(rows: list[dict[str, Any]]) -> str:
@@ -66,6 +75,10 @@ def table(rows: list[dict[str, Any]]) -> str:
     def cell(row, key):
         if key is None:
             return f"{row['successes']}/{row['trials']}"
+        if key == "levels":
+            return f"{row['levels_reached_mean']:.1f}/{row['levels_total']}" if "levels_total" in row and row["levels_reached_mean"] is not None else "-"
+        if key == "per_level":
+            return "/".join(map(str, row["level_successes"])) if "levels_total" in row else "-"
         value = row[key]
         if value is None:
             return "-"
@@ -73,6 +86,8 @@ def table(rows: list[dict[str, Any]]) -> str:
             return f"{value:.1f}"
         return str(int(value)) if isinstance(value, float) else str(value)
 
+    if any("levels_total" in row for row in rows):
+        columns += [("levels", "levels"), ("per level", "per_level")]
     lines = ["| " + " | ".join(name for name, _ in columns) + " |", "|" + "---|" * len(columns)]
     lines += ["| " + " | ".join(cell(row, key) for _, key in columns) + " |" for row in rows]
     return "\n".join(lines)

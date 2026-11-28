@@ -173,6 +173,14 @@ class CrystalHarness:
         self._trial += 1
         self._reset_trial(goal)
 
+    def next_goal(self, goal: str) -> None:
+        """A chain's next level: the journal, notes, and stuck ladder stay; the running tool, plan, and intention belonged to the old goal."""
+        self._goal = goal
+        self._running = None
+        self._plan_run = None
+        self._intention = ""
+        self._intention_age = 0
+
     def end_trial(self, outcome: TrialOutcome) -> Review:
         stats = self._stats
         summary = (

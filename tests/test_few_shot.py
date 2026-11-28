@@ -197,7 +197,10 @@ def test_gridworld_example_file_parses_for_every_agent():
         player = make_player({"name": name, "examples": path}, model)
         assert player.mechanisms()["few_shot"] is True, name
     # the example task is not the one the gridworld configs evaluate
-    goals = {json.loads(p.read_text())["goal"]["text"] for p in ROOT.glob("experiments/gridworld_7b_*.json")}
+    goals = set()
+    for p in ROOT.glob("experiments/gridworld_7b_*.json"):
+        goal = json.loads(p.read_text())["goal"]
+        goals |= {level["text"] for level in goal["chain"]} if "chain" in goal else {goal["text"]}
     assert Examples.from_dict(json.loads((ROOT / path).read_text())).trajectories[0].goal not in goals
 
 

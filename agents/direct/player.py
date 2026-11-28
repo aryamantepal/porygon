@@ -34,6 +34,9 @@ class DirectPolicy:
     def start_trial(self, goal: str) -> None:
         self._goal = goal
 
+    def next_goal(self, goal: str) -> None:
+        self._goal = goal
+
     def decide(self, observation: Observation, legal_actions: Sequence[Action]) -> Decision:
         snapshot, images = render_observation(observation)
         shots = f"{EXAMPLES}\n\n{self._examples}\n\nNow your task.\n" if self._examples else ""
