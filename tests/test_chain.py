@@ -383,8 +383,8 @@ def test_firered_chain_levels_use_get_progress_fields_in_order():
     chain = next(iter(chains.values()))
     assert len(chains) == 4 and all(c == chain for c in chains.values())  # one ladder, four agents
     assert [dict(level.goal.success) for level in chain.levels] == [{"map": [4, 0]}, {"map": [3, 0]}, {"map": [3, 19]}]
-    # the map ids after the first are not in this repo's data; the configs must say so
-    assert all(level.note.startswith("UNVERIFIED") for level in chain.levels[1:])
+    # map ids after the first were read from get_progress() on the ROM; each level says where
+    assert all("get_progress()" in level.note for level in chain.levels[1:])
     for name, spec in ((p.name, read_json(p)) for p in chain_configs() if p.name.startswith("firered")):
         single = read_json(ROOT / "experiments" / name.replace("_chain", ""))
         assert {k: spec[k] for k in ("environment", "model", "agent")} == {k: single[k] for k in ("environment", "model", "agent")}, name
