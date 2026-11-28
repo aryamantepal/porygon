@@ -130,6 +130,9 @@ def make_player(spec: dict[str, Any], model: ChatModel):
             stuck_ladder=spec.get("stuck_ladder", True),
             examples=examples,
             notes_shown=spec.get("notes_shown", 6),
+            plan=spec.get("plan", False),
+            explain_replan=spec.get("explain_replan", False),
+            max_replans=spec.get("max_replans", 2),
             **memory(spec),
         )
     if name == "continual":
