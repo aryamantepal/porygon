@@ -193,7 +193,7 @@ def test_malformed_examples_are_an_error():
 def test_gridworld_example_file_parses_for_every_agent():
     path = "experiments/examples/gridworld.json"
     model = ScriptedModel(lambda messages: "")
-    for name in ("direct", "react", "reflexion", "voyager", "crystal_harness"):
+    for name in ("direct", "react", "reflexion", "voyager", "crystal_harness", "continual"):
         player = make_player({"name": name, "examples": path}, model)
         assert player.mechanisms()["few_shot"] is True, name
     # the example task is not the one the gridworld configs evaluate

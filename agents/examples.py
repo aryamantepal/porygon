@@ -16,8 +16,8 @@ they teach the format and the controls without giving away the answer.
       "reflections": [                                        Reflexion
         {"trajectory_summary": "...", "reflection": "Plan: ..."}
       ],
-      "programs": ["skill name\\n<skill program source>"],    Voyager
-      "tool_calls": [                                         crystal harness
+      "programs": ["skill name\\n<skill program source>"],    Voyager, Continual Harness (Refiner)
+      "tool_calls": [                                         crystal harness, Continual Harness
         {"situation": <state dict or text>, "reply": {...}, "goal": "..."}
       ]
     }

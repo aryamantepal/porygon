@@ -101,6 +101,30 @@ def make_player(spec: dict[str, Any], model: ChatModel):
             stuck_ladder=spec.get("stuck_ladder", True),
             examples=examples,
         )
+    if name == "continual":
+        from agents.continual import ContinualHarness
+
+        return ContinualHarness(
+            model,
+            refiner_model=make_model(spec["refiner_model"]) if spec.get("refiner_model") else None,
+            refine_prompt=spec.get("refine_prompt", True),
+            refine_skills=spec.get("refine_skills", True),
+            refine_memory=spec.get("refine_memory", True),
+            agent_meta_tools=spec.get("agent_meta_tools", True),
+            carry_across_trials=spec.get("carry_across_trials", False),
+            refine_warmup=spec.get("refine_warmup", 25),
+            refine_early_every=spec.get("refine_early_every", 25),
+            refine_early_until=spec.get("refine_early_until", 200),
+            refine_late_every=spec.get("refine_late_every", 100),
+            refine_window=spec.get("refine_window", 50),
+            refine_cooldown=spec.get("refine_cooldown", 10),
+            max_agent_refines=spec.get("max_agent_refines", 3),
+            repeat_limit=spec.get("repeat_limit", 3),
+            max_memory=spec.get("max_memory", 30),
+            max_skills=spec.get("max_skills", 12),
+            harness_path=Path(spec["harness_path"]) if spec.get("harness_path") else None,
+            examples=examples,
+        )
     raise ValueError(f"unknown agent {name!r}")
 
 
@@ -123,7 +147,7 @@ def file_hashes(spec: dict[str, Any]) -> dict[str, str | None]:
     file did not exist when the run started (a memory file the run will create).
     """
     paths = [spec["environment"].get(key) for key in ("rom", "state")]
-    paths += [spec["agent"].get(key) for key in ("backbone", "knowledge_path", "library_path", "examples")]
+    paths += [spec["agent"].get(key) for key in ("backbone", "knowledge_path", "library_path", "harness_path", "examples")]
     hashes = {}
     for path in filter(None, paths):
         file = Path(path)

@@ -1,6 +1,6 @@
 # Porygon
 
-Porygon is an open-source framework for developing and comparing autonomous players on long-horizon games. The game is Pokémon FireRed. One player is an open-weights model that sees only the current snapshot and chooses an action. The others are [ReAct](https://arxiv.org/abs/2210.03629), [Reflexion](https://arxiv.org/abs/2303.11366), [Voyager](https://voyager.minedojo.org/), and a game-agnostic rebuild of the harness from [Teaching a Local LLM to Play Pokémon Crystal](https://projects.playtesting.dev/posts/pokemon-crystal/).
+Porygon is an open-source framework for developing and comparing autonomous players on long-horizon games. The game is Pokémon FireRed. One player is an open-weights model that sees only the current snapshot and chooses an action. The others are [ReAct](https://arxiv.org/abs/2210.03629), [Reflexion](https://arxiv.org/abs/2303.11366), [Voyager](https://voyager.minedojo.org/), a game-agnostic rebuild of the harness from [Teaching a Local LLM to Play Pokémon Crystal](https://projects.playtesting.dev/posts/pokemon-crystal/), and [Continual Harness](https://arxiv.org/abs/2605.09998).
 
 The question is how those architectures change an agent's ability to explore, plan, remember, recover from mistakes, and carry out long action sequences — and which of those mechanisms still help when the game changes. The open-weights player is the floor: the same model, the same snapshot, and a decision with no carried context.
 
@@ -16,6 +16,7 @@ flowchart LR
     Reflexion[Reflexion]
     Voyager[Voyager]
     Harness[Crystal harness]
+    Continual[Continual Harness]
   end
 
   subgraph eval [Evaluation]
@@ -68,11 +69,13 @@ Voyager's original action space is code, because Minecraft skills are open-ended
 
 **Crystal harness.** The harness from the Crystal write-up, rebuilt so it never names the game. It reads a *role snapshot* ([`environments/roles.py`](environments/roles.py)): doors, people, items, and milestones by role, plus a collision grid, the dialogue text, and the battle options. Each decision is routed by what the game is waiting for. A battle specialist removes options that break its rules (no move with no uses left, no knockout of something being caught) and the model picks from what is left. Dialogue is read into a journal as leads. The planner names a tool (`go_to`, `talk_to`, `press`, `note`) and code walks the path press by press. A stuck ladder escalates when the same situation repeats: show past failures, nudge, think more, then ask for help. A knowledge graph keeps a fixed backbone and lets the agent attach notes. The write-up publishes no prompts or thresholds, so those are ours. Its operator console is not built.
 
+**Continual Harness.** One model plays through a minimal interface, the snapshot and the legal buttons, with a harness that starts empty: a guidance section, a skill library, and a memory. On a code-driven schedule (nothing before step 25, every 25 steps through step 200, then every 100) the same model, acting as a text-only Refiner, reads the last 50 steps and edits that harness in place, mid-trial, one pass each for guidance, skills, and memory. The agent can also write memory and ask for a refinement itself, rate-limited. The paper finds most of the gain comes from the skill library, so every pass is a switch and "skills only" is a config. Skills are programs in Voyager's skill language, not Python, so each press is a counted step, and a Refiner-written skill that does not parse against the legal actions is rejected and logged. A reply that is not a valid tool call is shown back to the model with the reason. A trial starts from an empty harness unless `carry_across_trials` is on. Sub-agents are not built, and the Refiner can be a different model from the player. Ported from the authors' MIT-licensed code, with the deviations listed in [`agents/continual/player.py`](agents/continual/player.py).
+
 ### Evaluation
 
 A result is a set of repeated trials under one declared configuration: the same initial state, model, action space, observation access, and computational budget.
 
-The runner records task success, game progression, environment steps, token usage and cost, recovery from mistakes, skill reuse on later tasks, and consistency across trials. Ablations turn one mechanism off at a time — the curriculum, the skill library, verbal reflections, or self-verification — and share the runner.
+The runner records task success, game progression, environment steps, token usage and cost, recovery from mistakes, skill reuse on later tasks, and consistency across trials. Ablations turn one mechanism off at a time — the curriculum, the skill library, verbal reflections, self-verification, or one of the Continual Harness refinement passes — and share the runner.
 
 Trajectories, prompts, and model calls are saved with the run, along with a SHA-256 of every file the run starts from (ROM, saved state, agent memory files).
 
@@ -133,5 +136,6 @@ PORYGON_BATTLE_STATE=saves/battle.state
 - [ReAct: Synergizing Reasoning and Acting in Language Models](https://arxiv.org/abs/2210.03629)
 - [Reflexion: Language Agents with Verbal Reinforcement Learning](https://arxiv.org/abs/2303.11366)
 - [Teaching a Local LLM to Play Pokémon Crystal on a DGX Spark](https://projects.playtesting.dev/posts/pokemon-crystal/)
+- [Continual Harness](https://arxiv.org/abs/2605.09998) ([code](https://github.com/sethkarten/continual-harness))
 
 Implementation boundaries for contributors are in [AGENTS.md](AGENTS.md).
