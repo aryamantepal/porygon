@@ -50,6 +50,11 @@ def make_examples(spec: dict[str, Any]) -> Examples | None:
     return Examples.from_dict(json.loads(Path(spec["examples"]).read_text())) if spec.get("examples") else None
 
 
+def interface(spec: dict[str, Any]) -> dict[str, Any]:
+    """The action-interface switches ReAct, Reflexion, and Voyager share: `"action_interface"` ("buttons" or "tools") and `"specialists"` (tools only)."""
+    return {"action_interface": spec.get("action_interface", "buttons"), "specialists": spec.get("specialists", False)}
+
+
 def make_player(spec: dict[str, Any], model: ChatModel):
     name = spec["name"]
     examples = make_examples(spec)
@@ -65,6 +70,7 @@ def make_player(spec: dict[str, Any], model: ChatModel):
             history_turns=spec.get("history_turns", 10),
             retry_illegal_action=spec.get("retry_illegal_action", False),
             examples=examples,
+            **interface(spec),
         )
     if name == "reflexion":
         from agents.reflexion import Reflexion
@@ -76,6 +82,7 @@ def make_player(spec: dict[str, Any], model: ChatModel):
             memory_size=spec.get("memory_size", 3),
             retry_illegal_action=spec.get("retry_illegal_action", False),
             examples=examples,
+            **interface(spec),
         )
     if name == "voyager":
         from agents.voyager import Voyager
@@ -89,6 +96,7 @@ def make_player(spec: dict[str, Any], model: ChatModel):
             max_attempts=spec.get("max_attempts", 4),
             library_path=Path(spec["library_path"]) if spec.get("library_path") else None,
             examples=examples,
+            **interface(spec),
         )
     if name == "crystal_harness":
         from agents.harness import CrystalHarness

@@ -29,24 +29,13 @@ from typing import Any
 
 from agents.common import first_json_object, render_observation
 from agents.examples import Examples
-from agents.harness import battle as battle_rules
 from agents.harness import prompts, tools
 from agents.harness.memory import Journal, KnowledgeGraph
+from agents.harness.specialists import Handled, Specialists
 from agents.harness.stuck import RUNGS, StuckLadder, signature
 from agents.models import ChatModel, Message, ModelCall
 from agents.protocol import Decision, Review, TrialOutcome
 from environments.protocol import Action, Observation
-
-
-@dataclass
-class Running:
-    handler: str
-    tool: str
-    args: dict[str, Any]
-    steps: tools.Step
-    start_state: dict[str, Any] | None
-    presses: int = 0
-    primed: bool = False
 
 
 @dataclass
@@ -79,6 +68,7 @@ class CrystalHarness:
         self.intention_ticks = intention_ticks
         self.max_calls_per_decision = max_calls_per_decision
         self.busy_wait_limit = busy_wait_limit
+        self._specialists = Specialists(model, busy_wait_limit=busy_wait_limit)
         self._trial = -1
         self._reset_trial("")
 
@@ -97,14 +87,14 @@ class CrystalHarness:
         self._goal = goal
         self._journal = Journal()
         self._ladder = StuckLadder()
-        self._running: Running | None = None
+        self._running: tools.ToolRun | None = None
         self._intention = ""
         self._intention_age = 0
         self._bad_reply: str | None = None
         self._battle_goal = "defeat"
         self._tick = 0
         self._summarized: set[str] = set()
-        self._busy_streak = 0
+        self._specialists.reset()
         self._stats = {"tools": 0, "tool_failures": 0, "maps": set(), "dialogues": 0, "help_requests": 0}
 
     def start_trial(self, goal: str) -> None:
@@ -139,38 +129,34 @@ class CrystalHarness:
                 continue
             context = (state or {}).get("context", "overworld")
             if context != "busy":
-                self._busy_streak = 0
+                self._specialists.reset_busy()
             if context == "battle" and state.get("battle"):
-                self._start_battle(state, keys, turn)
+                self._use(self._specialists.battle(state, keys, self._battle_goal), turn)
             elif context == "dialogue":
                 self._read_dialogue(state, keys, turn)
             elif context == "menu" and state.get("menu"):
                 self._pick_menu(state, keys, turn)
             elif context == "busy":
-                self._wait_out(state, keys, turn)
+                self._use(self._specialists.busy(state, keys), turn)
             else:
                 self._plan(observation, keys, legal_actions, turn)
         turn.events.append({"type": "gave_up", "reason": f"{self.max_calls_per_decision} model calls without a press"})
         return Decision(None, self._trace(turn), tuple(turn.calls))
 
     def _start(self, handler: str, tool: str, args: dict, steps: tools.Step, state) -> None:
-        self._running = Running(handler, tool, args, steps, state)
+        self._running = tools.ToolRun(handler, tool, args, steps, state, chosen=handler == "planner")
+
+    def _use(self, handled: Handled, turn: _Turn) -> None:
+        turn.calls.extend(handled.calls)
+        turn.events.extend(handled.events)
+        self._running = handled.run
 
     def _advance(self, observation: Observation, turn: _Turn) -> Action | None:
         running = self._running
-        try:
-            action = running.steps.send(observation) if running.primed else next(running.steps)
-            running.primed = True
-            running.presses += 1
-            return action
-        except StopIteration as done:
-            outcome, result = "done", done.value
-            if running.presses == 0 and running.handler == "planner":
-                outcome, result = "failed", f"nothing to do: {done.value}"
-        except tools.Interrupted as interruption:
-            outcome, result = "interrupted", str(interruption)
-        except tools.ToolError as failure:
-            outcome, result = "failed", str(failure)
+        step = running.advance(observation)
+        if not isinstance(step, tools.ToolEnd):
+            return step
+        outcome, result = step.outcome, step.result
         self._running = None
         turn.events.append({"type": "tool_end", "handler": running.handler, "tool": running.tool, "args": running.args, "outcome": outcome, "result": result, "presses": running.presses})
         if running.handler == "planner":
@@ -182,48 +168,6 @@ class CrystalHarness:
         return None
 
     # Specialists
-
-    def _start_battle(self, state, keys, turn: _Turn) -> None:
-        battle = state["battle"]
-        if not battle.get("options"):
-            # messages or animations: nothing to choose, so move them along
-            self._start("battle", "press", {"key": keys["confirm"]}, tools.press(keys["confirm"], 1), state)
-            return
-        goal = self._battle_goal
-        if goal == "catch" and not any(o.get("kind") == "catch" for o in battle["options"]):
-            # nothing on this menu catches, so the catch rules would only stall the fight
-            turn.events.append({"type": "battle_goal_unavailable", "goal": goal, "using": "defeat"})
-            goal = "defeat"
-        allowed, removed = battle_rules.allowed_options(battle, goal)
-        if not allowed:
-            # Confirming here would take whatever the cursor is on, which may be
-            # the option a rule just removed. Under catch, back out instead; otherwise
-            # (every option out of uses) confirming lets the game pick its fallback.
-            key = keys["cancel"] if goal == "catch" else keys["confirm"]
-            turn.events.append({"type": "battle", "goal": goal, "removed": removed, "choice": None, "press": key})
-            self._start("battle", "press", {"key": key}, tools.press(key, 1), state)
-            return
-        why = "only legal option"
-        choice = allowed[0]["id"]
-        if len(allowed) > 1:
-            call = self.model.chat(
-                [Message("system", prompts.BATTLE), Message("user", battle_rules.choose_prompt(battle, allowed, goal, removed))],
-                think=False,
-            )
-            turn.calls.append(call)
-            reply = first_json_object(call.output) or {}
-            if reply.get("option") in {o["id"] for o in allowed}:
-                choice, why = reply["option"], reply.get("why", "")
-            else:
-                why = f"reply did not name an allowed option; took {choice}"
-        turn.events.append({"type": "battle", "goal": goal, "allowed": [o["id"] for o in allowed], "removed": removed, "choice": choice, "why": why})
-        chosen = next(o for o in allowed if o["id"] == choice)
-        given = battle_rules.option_keys(chosen)
-        if given:
-            steps = tools.press_sequence(given)
-        else:
-            steps = tools.pick_option(battle.get("cursor", 0), battle_rules.option_index(battle, choice), keys)
-        self._start("battle", "choose", {"option": choice}, steps, state)
 
     def _read_dialogue(self, state, keys, turn: _Turn) -> None:
         text = (state.get("dialogue") or {}).get("text", "")
@@ -240,22 +184,7 @@ class CrystalHarness:
                 turn.events.append({"type": "dialogue", "text": text, "leads": leads})
             else:
                 turn.events.append({"type": "dialogue", "text": text})
-        self._start("dialogue", "press", {"key": keys["confirm"]}, tools.press(keys["confirm"], 1), state)
-
-    def _wait_out(self, state, keys, turn: _Turn) -> None:
-        """The game ignores movement (a transition, cutscene, or undescribed menu).
-
-        Wait if the adapter offers a do-nothing action; if the lock outlasts
-        `busy_wait_limit` decisions, press cancel to back out of a menu.
-        """
-        self._busy_streak += 1
-        if "wait" in keys and self._busy_streak <= self.busy_wait_limit:
-            key, reason = keys["wait"], "waiting for the game to take input again"
-        else:
-            key, reason = keys["cancel"], f"still busy after {self._busy_streak - 1} waits; backing out"
-            self._busy_streak = 0
-        turn.events.append({"type": "busy", "press": key, "reason": reason})
-        self._start("busy", "press", {"key": key}, tools.press(key, 1), state)
+        self._use(self._specialists.dialogue(state, keys), turn)
 
     def _pick_menu(self, state, keys, turn: _Turn) -> None:
         menu = state["menu"]
@@ -323,40 +252,15 @@ class CrystalHarness:
             self._start("planner", tool, args, steps, state)
 
     def _tool_steps(self, tool, args, observation, keys, legal_actions):
-        state = observation.state or {}
         if tool == "note":
             ok = self.knowledge.note(str(args.get("node", "")), str(args.get("text", "")))
             if not ok:
                 raise tools.ToolError(f"no knowledge node {args.get('node')!r}")
             return None
-        if tool == "press":
-            key = str(args.get("key", "")).upper()
-            if key not in {a.key for a in legal_actions}:
-                raise tools.ToolError(f"{key!r} is not a legal action")
-            times = args.get("times", 1)
-            if isinstance(times, bool) or not isinstance(times, int):
-                raise tools.ToolError(f'"times" must be a whole number, not {times!r}')
-            return tools.press(key, max(1, min(times, 20)))
-        target, role = self._target(args, state)
-        if tool == "go_to":
-            return tools.go_to(observation, target, keys, door=role == "door")
-        return tools.talk_to(observation, target, keys)
+        return tools.tool_steps(tool, args, observation, keys, {a.key for a in legal_actions})
 
     def _target(self, args, state) -> tuple[tuple[int, int], str]:
-        if "place" in args:
-            for place in state.get("places", []):
-                if place.get("id") == args["place"]:
-                    return tuple(place["position"]), place.get("role", "")
-            raise tools.ToolError(f"no place {args['place']!r} on this map")
-        position = args.get("position")
-        if isinstance(position, list) and len(position) == 2 and all(isinstance(v, int) for v in position):
-            # coordinates of a known place mean that place: a door named by its
-            # tile still needs the walk-into-it handling
-            for place in state.get("places", []):
-                if list(place.get("position", [])) == position:
-                    return tuple(position), place.get("role", "")
-            return tuple(position), ""
-        raise tools.ToolError('args need "place" or "position": [x, y]')
+        return tools.resolve_target(args, state)
 
     def _update_intention(self, reply, why, turn: _Turn) -> None:
         new = str(reply.get("intention") or "").strip()

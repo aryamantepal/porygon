@@ -23,6 +23,20 @@ Mechanisms, each switchable for ablations:
 - few_shot: `examples` programs from another task are shown in the action-agent
   prompt after the retrieved skills, as Voyager's original prompt shows example
   code. They are not stored in the library and cannot be called.
+- tools (`action_interface="tools"`): the skill language gains `go_to <place_id>`,
+  `go_to [x, y]`, and `talk_to <place_id>`, which expand through the Crystal
+  harness's navigator one press per `decide`, each press counted against
+  MAX_PRESSES and logged by the runner (`agents/voyager/skills.py`). A failed tool
+  is an execution error fed back to the next attempt, and what each tool
+  statement returned joins the environment feedback. Without a grid and position
+  in the observation the prompt lists no tool statements and the trace says so.
+- specialists (tools only): code handles busy, dialogue, and battle before any
+  model call (`agents/harness/specialists.py`), between programs and during
+  them. A battle that starts while a program runs ends it with
+  "interrupted: battle started" (the critic is skipped and the attempt is spent);
+  the battle specialist then plays the battle and the task resumes. Dialogue and
+  busy do not interrupt a program, so `talk_to` can finish in a conversation;
+  the specialist presses through it once the program is over.
 """
 
 from __future__ import annotations
@@ -36,12 +50,16 @@ from typing import Any, Generator
 
 from agents.common import first_json_object, render_observation
 from agents.examples import Examples
+from agents.harness import tools
+from agents.harness.calls import check_interface
+from agents.harness.specialists import Specialists
 from agents.models import ChatModel, Message, ModelCall
 from agents.protocol import Decision, Review, TrialOutcome
 from agents.voyager import prompts
-from agents.voyager.skills import Program, Run, SkillError, SkillLibrary, execute, parse
-from environments.protocol import Action, Observation
+from agents.voyager.skills import Program, Run, SkillError, SkillInterrupted, SkillLibrary, execute, parse
+from environments.protocol import Action, Observation, Press
 
+MAX_TOOL_NOTES = 10  # tool results kept in a program's environment feedback
 _CODE = re.compile(r"```(?:skill)?\s*\n(.*?)```", re.DOTALL)
 _SECTION = re.compile(r"^(Explain|Plan|Code)\s*:", re.IGNORECASE | re.MULTILINE)
 
@@ -90,8 +108,13 @@ class Voyager:
         library_path: Path | None = None,
         max_calls_per_decision: int = 12,
         examples: Examples | None = None,
+        action_interface: str = "buttons",
+        specialists: bool = False,
     ) -> None:
         self.model = model
+        self.tools = check_interface(action_interface, specialists)
+        self.specialists = specialists
+        self._specialists = Specialists(model)
         self._example_programs = examples.programs_text() if examples else ""
         self.curriculum = curriculum
         self.skill_library = skill_library
@@ -107,6 +130,7 @@ class Voyager:
         self._goal = ""
         self._task: Task | None = None
         self._execution: Execution | None = None
+        self._special: tools.ToolRun | None = None
 
     def mechanisms(self) -> dict[str, bool]:
         return {
@@ -116,12 +140,16 @@ class Voyager:
             "self_verification": self.self_verification,
             "few_shot": bool(self._example_programs),
             "thinking": False,
+            "tools": self.tools,
+            "specialists": self.specialists,
         }
 
     def start_trial(self, goal: str) -> None:
         self._goal = goal
         self._task = None
         self._execution = None
+        self._special = None
+        self._specialists.reset()
 
     def end_trial(self, outcome: TrialOutcome) -> Review:
         return Review(
@@ -136,14 +164,26 @@ class Voyager:
 
     def decide(self, observation: Observation, legal_actions: Sequence[Action]) -> Decision:
         keys = [action.key for action in legal_actions]
-        self.library.bind(keys)
+        self.library.bind(keys, tools=self.tools)
         turn = _Turn()
         while len(turn.calls) < self.max_calls_per_decision:
+            if self._special is not None:
+                step = self._special.advance(observation)
+                if isinstance(step, Press):
+                    return Decision(step, self._trace(turn), tuple(turn.calls))
+                self._special = None
             if self._execution is not None:
                 action = self._advance(observation, turn)
                 if action is not None:
                     return Decision(action, self._trace(turn), tuple(turn.calls))
                 continue
+            if self.specialists:
+                handled = self._specialists.route(observation.state, tools.controls(observation.state, set(keys)))
+                if handled is not None:
+                    self._special = handled.run
+                    turn.calls.extend(handled.calls)
+                    turn.events.extend(handled.events)
+                    continue
             if self._task is None:
                 self._task = self._propose_task(observation, turn)
             self._write_program(observation, keys, turn)
@@ -153,16 +193,23 @@ class Voyager:
     def _advance(self, observation: Observation, turn: _Turn) -> Action | None:
         """The next press of the running program, or None once it has finished."""
         execution = self._execution
-        try:
-            if execution.primed:
-                return execution.steps.send(observation)
-            execution.primed = True
-            return next(execution.steps)
-        except StopIteration:
-            error = ""
-        except SkillError as failure:
-            error = str(failure)
-        self._finish_program(observation, error, turn)
+        interrupted = False
+        if self.specialists and execution.primed and (observation.state or {}).get("context") == "battle":
+            execution.steps.close()
+            error, interrupted = "interrupted: battle started", True
+        else:
+            try:
+                if execution.primed:
+                    return execution.steps.send(observation)
+                execution.primed = True
+                return next(execution.steps)
+            except StopIteration:
+                error = ""
+            except SkillInterrupted as failure:
+                error, interrupted = str(failure), True
+            except SkillError as failure:
+                error = str(failure)
+        self._finish_program(observation, error, turn, interrupted)
         return None
 
     # Curriculum
@@ -198,8 +245,11 @@ class Voyager:
         programs = "\n\n".join(s.program.source for s in retrieved) or "(none yet)"
         if self._example_programs:
             programs += "\n\n" + prompts.EXAMPLE_PROGRAMS.format(programs=self._example_programs)
+        offered = self.tools and tools.navigable(observation.state)
+        if self.tools and not offered:
+            turn.events.append({"type": "tools_offered", "tools": [], "reason": "this observation has no grid and position, so the language lists no tool statements"})
         system = prompts.ACTION_TEMPLATE.format(
-            language=prompts.SKILL_LANGUAGE.replace("<ACTION>", "|".join(keys)),
+            language=(prompts.SKILL_LANGUAGE_TOOLS if offered else prompts.SKILL_LANGUAGE).replace("<ACTION>", "|".join(keys)),
             programs=programs,
             response_format=prompts.ACTION_RESPONSE_FORMAT,
         )
@@ -221,7 +271,7 @@ class Voyager:
         try:
             if code is None:
                 raise SkillError("the reply has no ```skill code block")
-            program = parse(code, keys)
+            program = parse(code, keys, tools=self.tools)
         except SkillError as failure:
             turn.events.append({"type": "program", "attempt": task.attempt, "explain": explain, "plan": plan, "source": code, "error": str(failure)})
             self._attempt_failed(task, code or "", str(failure), "", "", turn)
@@ -229,16 +279,22 @@ class Voyager:
         turn.events.append({"type": "program", "attempt": task.attempt, "name": program.name, "explain": explain, "plan": plan, "source": program.source})
         run = Run()
         library = self.library.programs() if self.skill_library else None
-        self._execution = Execution(program, execute(program, library, observation, run), run, observation)
+        self._execution = Execution(program, execute(program, library, observation, run, keys if self.tools else None), run, observation)
 
     # Self-verification
 
-    def _finish_program(self, observation: Observation, error: str, turn: _Turn) -> None:
+    def _finish_program(self, observation: Observation, error: str, turn: _Turn, interrupted: bool = False) -> None:
         execution, task = self._execution, self._task
         self._execution = None
         feedback = _state_change(execution.start, observation) + f"; {execution.run.presses} presses"
-        turn.events.append({"type": "program_end", "name": execution.program.name, "presses": execution.run.presses, "error": error, "feedback": feedback})
-        if self.self_verification:
+        if execution.run.notes:
+            feedback += "; tools: " + "; ".join(execution.run.notes[-MAX_TOOL_NOTES:])
+        end = {"type": "program_end", "name": execution.program.name, "presses": execution.run.presses, "error": error, "feedback": feedback}
+        turn.events.append({**end, "interrupted": True} if interrupted else end)
+        if interrupted:
+            # the game changed context under the program; nothing to verify, and a model call mid-battle would only guess
+            success, critique = False, ""
+        elif self.self_verification:
             success, critique = self._critic(execution.start, observation, task, turn)
         else:
             success, critique = not error, ""
@@ -291,13 +347,18 @@ class Voyager:
 
     def _trace(self, turn: _Turn) -> dict[str, Any]:
         execution = self._execution
-        return {
+        trace = {
             "task": self._task.text if self._task else None,
             "attempt": self._task.attempt if self._task else None,
             "skill": execution.program.name if execution else None,
             "press": execution.run.presses if execution else None,
             "events": turn.events,
         }
+        if self.tools:
+            trace["statement"] = (execution.run.current or None) if execution else None
+            special = self._special
+            trace["special"] = {"handler": special.handler, "tool": special.tool, "args": special.args, "press": special.presses} if special else None
+        return trace
 
 
 def _field(text: str, name: str) -> str:

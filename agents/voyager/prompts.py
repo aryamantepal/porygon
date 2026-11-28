@@ -21,6 +21,17 @@ A skill program is a list of statements, one per line, with blocks indented unde
     call <skill_name>                 run a skill from the library
 Conditions read fields of the State (dotted paths such as party.0.hp) and compare with ==, !=, <, <=, >, >= against JSON values such as 10 or [4, 0]."""
 
+# With the tools interface the language gains three statements, listed only then.
+_CALL_LINE = "    call <skill_name>                 run a skill from the library\n"
+_TOOL_LINES = """\
+    go_to <place_id>                  walk to a place listed in the State's `places` (walking onto a door goes through it)
+    go_to [x, y]                      walk to a tile of the map
+    talk_to <place_id>                walk next to a person, face them, and talk
+go_to and talk_to expand into button presses, and each press counts toward the program's limit of 200. They fail when the place does not exist or there is no path, and stop early if the game leaves the overworld (a battle, a menu, a conversation).
+"""
+assert _CALL_LINE in SKILL_LANGUAGE
+SKILL_LANGUAGE_TOOLS = SKILL_LANGUAGE.replace(_CALL_LINE, _CALL_LINE + _TOOL_LINES)
+
 ACTION_RESPONSE_FORMAT = """\
 Explain: ...
 Plan:

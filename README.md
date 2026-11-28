@@ -87,6 +87,8 @@ An experiment is a JSON config in [`experiments/`](experiments/): environment, a
 
 Agents are zero-shot by default. An agent block with `"examples": "<path>"` adds few-shot examples from a JSON file (format in [`agents/examples.py`](agents/examples.py)), and each agent reports `few_shot` in its mechanisms. ReAct and Reflexion also take `"retry_illegal_action": true`, which retries an action that is not legal; off, only a missing action is retried, as in the ReAct paper.
 
+ReAct, Reflexion, and Voyager also take two switches that separate the architecture from the action interface. `"action_interface": "tools"` swaps one-button actions for the Crystal harness's tools: ReAct's Action line becomes a tool call (`go_to door_0`, `talk_to person`, `press A x3`), and Voyager's skill language gains `go_to` and `talk_to`. Code expands each call into presses, and the runner counts and logs every one, so steps stay comparable with button-only runs. `"specialists": true` (tools only) lets code handle busy screens, dialogue, and battles before the model is asked, as the harness does. Both are reported in `mechanisms`, and both are off by default, which keeps the button-only prompts exactly as they were.
+
 ```sh
 uv run python -m experiments.run experiments/gridworld_react.json
 uv run python -m evaluation.trace runs/<run> --trial 0

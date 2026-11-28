@@ -12,6 +12,10 @@ Differences from the paper, because the setting differs:
   button twice in a row is normal play here.
 - The failure the reflection answers is the environment's verdict (which
   budget ran out), not a model's claim.
+- With `action_interface="tools"` (see `agents/react/player.py`) a turn is one
+  tool call. The reflection query shows each turn as Observation (which opens
+  with how the previous tool ended), Thought, and Action, and adds a Result
+  line after the last turn, whose outcome no later Observation shows.
 
 Ablation: `reflections=False` runs the same player with no reflections.
 """
@@ -49,8 +53,10 @@ class Reflexion(ReAct):
         reflection_turns: int = 40,
         retry_illegal_action: bool = False,
         examples: Examples | None = None,
+        action_interface: str = "buttons",
+        specialists: bool = False,
     ) -> None:
-        super().__init__(model, history_turns, retry_illegal_action, examples)
+        super().__init__(model, history_turns, retry_illegal_action, examples, action_interface, specialists)
         self._example_reflections = examples.reflections_text() if examples else ""
         self.reflections = reflections
         self.memory_size = memory_size
@@ -108,6 +114,7 @@ class Reflexion(ReAct):
             lines.append(f"({first} earlier turns omitted)")
         for index, turn in enumerate(turns, start=first + 1):
             lines += [f"Observation {index}: {turn.observation}", f"Thought {index}: {turn.thought}", f"Action {index}: {turn.action}"]
+            lines += self._turn_tail(index, turn, last=index == len(self._turns))
         lines.append(f"STATUS: FAIL ({outcome.reason} after {outcome.steps} steps)")
         past = _last(self.memory, self.memory_size)
         if past:

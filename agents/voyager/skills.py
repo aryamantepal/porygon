@@ -18,6 +18,20 @@ The language, one statement per line, blocks indented under a header:
 Conditions read fields of the structured snapshot (dotted paths, e.g.
 `party.0.hp`) and compare them to JSON values (`map == [4, 0]`). In visual
 mode there is no structured snapshot, so a condition is an execution error.
+
+With the tools interface (`parse(..., tools=True)`, a player's
+`action_interface="tools"`) three statements are added. They expand into
+button presses through the Crystal harness's navigator, one press per
+decision, and every press counts against MAX_PRESSES:
+
+    go_to door_0                   # walk to a place listed in the snapshot
+    go_to [4, 2]                   # walk to a tile
+    talk_to person                 # walk next to someone, face them, and talk
+
+A tool that fails (no such place, no path, no conversation) is a SkillError
+with the tool's own message. A tool that is interrupted because the game
+changed context (a battle started) is a `SkillInterrupted`. In buttons mode
+these statements do not parse.
 """
 
 from __future__ import annotations
@@ -26,11 +40,13 @@ import json
 import math
 import re
 from collections import Counter
-from collections.abc import Generator, Mapping, Sequence
+from collections.abc import Collection, Generator, Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Union
 
+from agents.harness import tools as navigator
+from agents.harness.calls import parse_target
 from environments.protocol import Action, Observation, Press
 
 MAX_PRESSES = 200  # per program run, so a bad loop cannot eat the whole budget
@@ -39,6 +55,10 @@ MAX_CALL_DEPTH = 5
 
 class SkillError(Exception):
     """A parse or execution error, fed back to the model as Voyager feeds back JS errors."""
+
+
+class SkillInterrupted(SkillError):
+    """A tool statement stopped because the game changed context (a battle started), not because it failed."""
 
 
 # Program structure
@@ -70,7 +90,20 @@ class Call:
     name: str
 
 
-Statement = Union[Tap, Repeat, Until, Call]
+@dataclass(frozen=True)
+class Navigate:
+    """`go_to` or `talk_to`, with the arguments in the harness's form ({"place": id} or {"position": [x, y]})."""
+
+    tool: str
+    args: Mapping[str, Any]
+
+    @property
+    def label(self) -> str:
+        target = self.args["place"] if "place" in self.args else str(list(self.args["position"]))
+        return f"{self.tool} {target}"
+
+
+Statement = Union[Tap, Repeat, Until, Call, Navigate]
 
 
 @dataclass(frozen=True)
@@ -87,9 +120,10 @@ _TAP = re.compile(r"^([A-Za-z_][A-Za-z0-9_]*)(?:\s+x\s*(\d+))?$")
 _REPEAT = re.compile(r"^repeat\s+(\d+)\s*:$")
 _UNTIL = re.compile(r"^until\s+([A-Za-z0-9_.]+)\s*(==|!=|<=|>=|<|>)\s*(.+?)\s*\(max\s+(\d+)\)\s*:$")
 _CALL = re.compile(r"^call\s+([A-Za-z_][A-Za-z0-9_]*)$")
+_NAVIGATE = re.compile(r"^(go_to|talk_to)(?:\s+(.*))?$")
 
 
-def parse(source: str, legal_keys: Sequence[str]) -> Program:
+def parse(source: str, legal_keys: Sequence[str], *, tools: bool = False) -> Program:
     lines = []
     for number, raw in enumerate(source.splitlines(), start=1):
         text = raw.split("#", 1)[0].rstrip()
@@ -101,7 +135,7 @@ def parse(source: str, legal_keys: Sequence[str]) -> Program:
     match = _NAME.match(first)
     if not match:
         raise SkillError(f"line {number}: a program must start with `skill <name>`")
-    body, rest = _parse_block(lines[1:], indent=None, legal_keys=set(legal_keys))
+    body, rest = _parse_block(lines[1:], None, set(legal_keys), tools)
     if rest:
         raise SkillError(f"line {rest[0][0]}: unexpected indentation")
     if not body:
@@ -122,7 +156,7 @@ def _calls(body) -> set[str]:
     return names
 
 
-def _parse_block(lines, indent, legal_keys):
+def _parse_block(lines, indent, legal_keys, tools):
     statements = []
     while lines:
         number, depth, text = lines[0]
@@ -134,17 +168,24 @@ def _parse_block(lines, indent, legal_keys):
             raise SkillError(f"line {number}: unexpected indentation")
         lines = lines[1:]
         if match := _REPEAT.match(text):
-            body, lines = _block_after(number, lines, depth, legal_keys)
+            body, lines = _block_after(number, lines, depth, legal_keys, tools)
             statements.append(Repeat(int(match.group(1)), body))
         elif match := _UNTIL.match(text):
             try:
                 value = json.loads(match.group(3))
             except json.JSONDecodeError:
                 raise SkillError(f"line {number}: `{match.group(3)}` is not a JSON value") from None
-            body, lines = _block_after(number, lines, depth, legal_keys)
+            body, lines = _block_after(number, lines, depth, legal_keys, tools)
             statements.append(Until(match.group(1), match.group(2), value, int(match.group(4)), body))
         elif match := _CALL.match(text):
             statements.append(Call(match.group(1)))
+        elif match := _NAVIGATE.match(text):
+            if not tools:
+                raise SkillError(f"line {number}: `{match.group(1)}` is only available with the tools interface; this player presses legal actions ({', '.join(sorted(legal_keys))})")
+            target = parse_target(match.group(2) or "")
+            if target is None:
+                raise SkillError(f"line {number}: `{match.group(1)}` needs a place id or [x, y], as in `{match.group(1)} door_0` or `{match.group(1)} [4, 2]`")
+            statements.append(Navigate(match.group(1), target))
         elif match := _TAP.match(text):
             key = match.group(1).upper()
             if key not in legal_keys:
@@ -155,10 +196,10 @@ def _parse_block(lines, indent, legal_keys):
     return tuple(statements), lines
 
 
-def _block_after(number, lines, depth, legal_keys):
+def _block_after(number, lines, depth, legal_keys, tools):
     if not lines or lines[0][1] <= depth:
         raise SkillError(f"line {number}: a block header needs an indented body")
-    return _parse_block(lines, indent=None, legal_keys=legal_keys)
+    return _parse_block(lines, None, legal_keys, tools)
 
 
 # Execution
@@ -169,21 +210,30 @@ class Run:
     """Counts what one program run did, for logging and feedback."""
 
     presses: int = 0
-    notes: list[str] = field(default_factory=list)
+    notes: list[str] = field(default_factory=list)  # how each tool statement ended, e.g. "go_to door_0: went through to town"
+    current: str = ""  # the tool statement being expanded, "" while a plain press runs
 
 
 Library = Mapping[str, Program]
 
 
 def execute(
-    program: Program, library: Library | None, observation: Observation, run: Run
+    program: Program,
+    library: Library | None,
+    observation: Observation,
+    run: Run,
+    legal_keys: Collection[str] | None = None,
 ) -> Generator[Action, Observation, None]:
-    """Yield one press at a time; the caller sends back the observation after each."""
+    """Yield one press at a time; the caller sends back the observation after each.
+
+    `legal_keys` turns the tools interface on: a `go_to` or `talk_to` statement
+    needs them to find the movement keys. None means a tool statement is an error.
+    """
     box = [observation]
-    yield from _run_block(program.body, library, box, run, depth=0)
+    yield from _run_block(program.body, library, box, run, 0, None if legal_keys is None else set(legal_keys))
 
 
-def _run_block(body, library, box, run, depth):
+def _run_block(body, library, box, run, depth, legal):
     for statement in body:
         if isinstance(statement, Tap):
             for _ in range(statement.times):
@@ -193,12 +243,12 @@ def _run_block(body, library, box, run, depth):
                 box[0] = yield Press(statement.key)
         elif isinstance(statement, Repeat):
             for _ in range(statement.times):
-                yield from _run_block(statement.body, library, box, run, depth)
+                yield from _run_block(statement.body, library, box, run, depth, legal)
         elif isinstance(statement, Until):
             for _ in range(statement.max_iterations):
                 if _holds(statement, box[0]):
                     break
-                yield from _run_block(statement.body, library, box, run, depth)
+                yield from _run_block(statement.body, library, box, run, depth, legal)
             else:
                 if not _holds(statement, box[0]):
                     actual = _lookup(box[0], statement.field)
@@ -213,7 +263,40 @@ def _run_block(body, library, box, run, depth):
                 raise SkillError(f"no skill named `{statement.name}` in the library")
             if depth >= MAX_CALL_DEPTH:
                 raise SkillError(f"calls nested deeper than {MAX_CALL_DEPTH}")
-            yield from _run_block(library[statement.name].body, library, box, run, depth + 1)
+            yield from _run_block(library[statement.name].body, library, box, run, depth + 1, legal)
+        elif isinstance(statement, Navigate):
+            yield from _navigate(statement, box, run, legal)
+
+
+def _navigate(statement: Navigate, box, run: Run, legal):
+    """Expand `go_to` / `talk_to` through the navigator: one press per yield, each counted."""
+    label = statement.label
+    if legal is None:
+        raise SkillError(f"`{label}` is unavailable: this player uses the buttons interface")
+    observation = box[0]
+    if not navigator.navigable(observation.state):
+        raise SkillError(f"`{label}` needs a snapshot with a grid and position, which this observation does not have")
+    try:
+        steps = navigator.tool_steps(statement.tool, statement.args, observation, navigator.controls(observation.state, legal), legal)
+    except navigator.ToolError as failure:
+        raise SkillError(f"`{label}` failed: {failure}") from None
+    run.current = label
+    try:
+        press = next(steps)
+        while True:
+            if run.presses >= MAX_PRESSES:
+                raise SkillError(f"stopped after {MAX_PRESSES} presses")
+            run.presses += 1
+            box[0] = yield press
+            press = steps.send(box[0])
+    except StopIteration as done:
+        run.notes.append(f"{label}: {done.value}")
+    except navigator.ToolError as failure:
+        raise SkillError(f"`{label}` failed: {failure}") from None
+    except navigator.Interrupted as interruption:
+        raise SkillInterrupted(f"`{label}` interrupted: {interruption}") from None
+    finally:
+        run.current = ""
 
 
 def _lookup(observation: Observation, path: str) -> Any:
@@ -300,12 +383,12 @@ class SkillLibrary:
             program = Program(name, (), data["source"])  # body is re-parsed against legal keys on first use
             self.skills[name] = Skill(program, data["description"], data["task"], data["version"])
 
-    def bind(self, legal_keys: Sequence[str]) -> None:
+    def bind(self, legal_keys: Sequence[str], *, tools: bool = False) -> None:
         """Parse loaded skills against this environment's legal actions."""
         for name, skill in list(self.skills.items()):
             if not skill.program.body:
                 try:
-                    program = parse(skill.program.source, legal_keys)
+                    program = parse(skill.program.source, legal_keys, tools=tools)
                 except SkillError:
                     del self.skills[name]
                     continue
